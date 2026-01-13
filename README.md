@@ -5,7 +5,11 @@
 </p>
 
 <p align="center">
-  <strong>专业的批量视频上传监控工具</strong>
+  <strong>Professional Batch Video Upload Monitor</strong>
+</p>
+
+<p align="center">
+  <a href="README_CN.md">中文</a> | English
 </p>
 
 <p align="center">
@@ -16,61 +20,61 @@
 
 ---
 
-## ✨ 功能特点
+## ✨ Features
 
-- 🌐 **跨平台支持** - Windows / macOS / Linux
-- 📁 **智能批次** - 同目录文件自动归为一批
-- 🔔 **开始通知** - 检测到上传立即提醒
-- ⏱️ **完成检测** - 30秒无变动自动判定上传完成
-- ✅ **批次签收** - 确认已处理的上传批次
-- 🎬 **视频专用** - 默认监控常见视频格式
-- 🎨 **科技界面** - 蓝绿主题高科技风格
+- 🌐 **Cross-platform** - Windows / macOS / Linux
+- 📁 **Smart Batching** - Files in same directory grouped as one batch
+- 🔔 **Start Notification** - Alert when upload detected
+- ⏱️ **Completion Detection** - Auto-complete after 30s of no activity
+- ✅ **Batch Acknowledgment** - Confirm processed upload batches
+- 🎬 **Video Focused** - Monitor common video formats by default
+- 🎨 **Tech UI** - Cyan-green high-tech theme
 
 ---
 
-## 📸 截图
+## 📸 Screenshots
 
 <table>
   <tr>
     <td align="center">
-      <img src="docs/screenshot-monitor.png" width="380" alt="监控界面">
-      <br><strong>监控界面</strong>
+      <img src="docs/screenshot-monitor.png" width="380" alt="Monitor">
+      <br><strong>Monitor</strong>
     </td>
     <td align="center">
-      <img src="docs/screenshot-settings.png" width="380" alt="设置界面">
-      <br><strong>设置界面</strong>
+      <img src="docs/screenshot-settings.png" width="380" alt="Settings">
+      <br><strong>Settings</strong>
     </td>
   </tr>
 </table>
 
 ---
 
-## 📥 下载
+## 📥 Download
 
-前往 [Releases](https://github.com/donma033x/FidruaWatch/releases) 页面下载最新版本：
+Go to [Releases](https://github.com/donma033x/FidruaWatch/releases) to download the latest version:
 
-| 平台 | 文件 |
-|------|------|
-| 🪟 Windows | `.msi` 或 `.exe` |
+| Platform | File |
+|----------|------|
+| 🪟 Windows | `.msi` or `.exe` |
 | 🍎 macOS (Intel) | `_x64.dmg` |
 | 🍎 macOS (Apple Silicon) | `_aarch64.dmg` |
-| 🐧 Linux | `.AppImage` 或 `.deb` |
+| 🐧 Linux | `.AppImage` or `.deb` |
 
 ---
 
-## 🚀 使用方法
+## 🚀 Usage
 
-1. **选择监控目录** - 点击选择要监控的视频上传文件夹
-2. **开始监控** - 点击"开始监控"按钮
-3. **开始上传通知** - 检测到新视频文件时会提醒
-4. **完成通知** - 30秒内无新文件变动则提醒"上传完成"
-5. **签收确认** - 点击签收确认已处理的批次
+1. **Select Folder** - Choose the video upload folder to monitor
+2. **Start Monitoring** - Click "Start Monitor" button
+3. **Upload Started** - Get notified when new video files detected
+4. **Upload Completed** - Get notified after 30s of no new file activity
+5. **Acknowledge** - Click to confirm processed batches
 
 ---
 
-## 🎬 支持的视频格式
+## 🎬 Supported Video Formats
 
-默认监控以下格式（可在设置中自定义）：
+Default monitored formats (customizable in settings):
 
 ```
 .mp4  .avi  .mkv  .mov  .wmv  .flv  .webm  .m4v  .mpeg  .mpg  .3gp  .ts
@@ -78,36 +82,36 @@
 
 ---
 
-## 🛠️ 开发
+## 🛠️ Development
 
-### 环境要求
+### Requirements
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Rust](https://www.rust-lang.org/) >= 1.70
 - [Tauri CLI](https://tauri.app/)
 
-### 本地开发
+### Local Development
 
 ```bash
-# 安装依赖
+# Install dependencies
 npm install
 
-# 开发模式
+# Development mode
 npm run tauri dev
 
-# 构建
+# Build
 npm run tauri build
 ```
 
-### 技术栈
+### Tech Stack
 
-- **前端**: HTML / CSS / JavaScript
-- **后端**: Rust + Tauri 2.0
-- **文件监控**: notify-rs
+- **Frontend**: HTML / CSS / JavaScript
+- **Backend**: Rust + Tauri 2.0
+- **File Watcher**: notify-rs
 
 ---
 
-## 📄 许可证
+## 📄 License
 
 MIT License
 
