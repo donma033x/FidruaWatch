@@ -1,0 +1,104 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            ext: .exe
+            archive: zip
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            ext: ''
+            archive: tar.gz
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            ext: ''
+            archive: tar.gz
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            ext: ''
+            archive: tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install Linux dependencies
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+        run: |
+          go build -ldflags="-s -w" -o fidruawatch${{ matrix.ext }} .
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          tar -czvf fidruawatch-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz fidruawatch${{ matrix.ext }}
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        run: |
+          7z a fidruawatch-${{ matrix.goos }}-${{ matrix.goarch }}.zip fidruawatch${{ matrix.ext }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fidruawatch-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: fidruawatch-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          draft: true
+          body: |
+            ## 📥 Download
+            
+            | Platform | File |
+            |----------|------|
+            | 🪟 Windows | `fidruawatch-windows-amd64.zip` |
+            | 🍎 macOS (Intel) | `fidruawatch-darwin-amd64.tar.gz` |
+            | 🍎 macOS (Apple Silicon) | `fidruawatch-darwin-arm64.tar.gz` |
+            | 🐧 Linux | `fidruawatch-linux-amd64.tar.gz` |
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
