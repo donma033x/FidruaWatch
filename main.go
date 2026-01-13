@@ -27,20 +27,32 @@ type Batch struct {
 	ID        string
 	Folder    string
 	Files     []string
+	FileSizes map[string]int64 // track file sizes
+	TotalSize int64
 	Status    string // "uploading", "completed", "signed"
 	StartTime time.Time
 	LastTime  time.Time
+	Notified  bool // whether start notification was sent
 }
 
 // Config represents app settings
 type Config struct {
-	VideoEnabled    bool     `json:"video_enabled"`
-	ImageEnabled    bool     `json:"image_enabled"`
-	AudioEnabled    bool     `json:"audio_enabled"`
-	DocEnabled      bool     `json:"doc_enabled"`
-	ArchiveEnabled  bool     `json:"archive_enabled"`
-	CustomExts      string   `json:"custom_exts"`
-	MonitorSubdirs  bool     `json:"monitor_subdirs"`
+	VideoEnabled      bool   `json:"video_enabled"`
+	ImageEnabled      bool   `json:"image_enabled"`
+	AudioEnabled      bool   `json:"audio_enabled"`
+	DocEnabled        bool   `json:"doc_enabled"`
+	ArchiveEnabled    bool   `json:"archive_enabled"`
+	CustomExts        string `json:"custom_exts"`
+	MonitorSubdirs    bool   `json:"monitor_subdirs"`
+	CompletionTimeout int    `json:"completion_timeout"` // seconds, default 30
+	NotifyOnStart     bool   `json:"notify_on_start"`
+	NotifyOnComplete  bool   `json:"notify_on_complete"`
+}
+
+// Temporary file patterns to ignore
+var tempFilePatterns = []string{
+	".tmp", ".temp", ".part", ".partial", ".crdownload",
+	"~$", ".swp", ".lock",
 }
 
 var (
@@ -72,13 +84,16 @@ var (
 func init() {
 	// Default config
 	config = Config{
-		VideoEnabled:   true,
-		ImageEnabled:   false,
-		AudioEnabled:   false,
-		DocEnabled:     false,
-		ArchiveEnabled: false,
-		CustomExts:     "",
-		MonitorSubdirs: true,
+		VideoEnabled:      true,
+		ImageEnabled:      false,
+		AudioEnabled:      false,
+		DocEnabled:        false,
+		ArchiveEnabled:    false,
+		CustomExts:        "",
+		MonitorSubdirs:    true,
+		CompletionTimeout: 30,
+		NotifyOnStart:     true,
+		NotifyOnComplete:  true,
 	}
 
 	// Config file path
@@ -205,7 +220,7 @@ func main() {
 				}
 
 				folderName := filepath.Base(b.Folder)
-				headerText := fmt.Sprintf("%s (%d 个文件) - %s", folderName, len(b.Files), statusText)
+				headerText := fmt.Sprintf("%s (%d个文件, %s) - %s", folderName, len(b.Files), formatSize(b.TotalSize), statusText)
 
 				details := container.NewVBox(
 					widget.NewLabel(fmt.Sprintf("📁 %s", b.Folder)),
@@ -278,8 +293,8 @@ func main() {
 		stopBtn.Enable()
 		folderBtn.Disable() // Disable folder selection during monitoring
 		// Start goroutines with context
-		go handleFileEvents(monitorCtx, requestUIUpdate)
-		go checkCompletions(monitorCtx, requestUIUpdate)
+		go handleFileEvents(monitorCtx, requestUIUpdate, a)
+		go checkCompletions(monitorCtx, requestUIUpdate, a)
 	})
 
 	stopBtn = widget.NewButton("⏹ 停止", func() {
@@ -384,8 +399,31 @@ func main() {
 	})
 	subdirCheck.Checked = config.MonitorSubdirs
 
+	notifyStartCheck := widget.NewCheck("🔔 新上传时通知", func(checked bool) {
+		config.NotifyOnStart = checked
+	})
+	notifyStartCheck.Checked = config.NotifyOnStart
+
+	notifyCompleteCheck := widget.NewCheck("🔔 上传完成时通知", func(checked bool) {
+		config.NotifyOnComplete = checked
+	})
+	notifyCompleteCheck.Checked = config.NotifyOnComplete
+
+	timeoutEntry := widget.NewEntry()
+	timeoutEntry.SetPlaceHolder("默认: 30")
+	if config.CompletionTimeout > 0 {
+		timeoutEntry.SetText(fmt.Sprintf("%d", config.CompletionTimeout))
+	}
+
 	saveBtn := widget.NewButton("💾 保存设置", func() {
 		config.CustomExts = customEntry.Text
+		// Parse timeout
+		if t := timeoutEntry.Text; t != "" {
+			var timeout int
+			if _, err := fmt.Sscanf(t, "%d", &timeout); err == nil && timeout >= 10 {
+				config.CompletionTimeout = timeout
+			}
+		}
 		saveConfig()
 		dialog.ShowInformation("成功", "设置已保存", w)
 	})
@@ -404,6 +442,12 @@ func main() {
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("⚙️ 其他设置", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		subdirCheck,
+		notifyStartCheck,
+		notifyCompleteCheck,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("⏱️ 完成超时(秒)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("无新文件写入超过此时间则判定上传完成"),
+		timeoutEntry,
 		widget.NewSeparator(),
 		saveBtn,
 	)
@@ -479,7 +523,7 @@ func stopMonitor() {
 	}
 }
 
-func handleFileEvents(ctx context.Context, updateUI func()) {
+func handleFileEvents(ctx context.Context, updateUI func(), app fyne.App) {
 	watcherMu.Lock()
 	w := watcher
 	watcherMu.Unlock()
@@ -511,7 +555,13 @@ func handleFileEvents(ctx context.Context, updateUI func()) {
 				}
 				// Handle monitored files
 				if isMonitoredFile(event.Name) {
-					addFileToBatch(event.Name)
+					isNewBatch := addFileToBatch(event.Name)
+					if isNewBatch && config.NotifyOnStart {
+						app.SendNotification(&fyne.Notification{
+							Title:   "FidruaWatch - 新上传",
+							Content: fmt.Sprintf("检测到新文件上传: %s", filepath.Base(event.Name)),
+						})
+					}
 					updateUI()
 				}
 			}
@@ -524,6 +574,10 @@ func handleFileEvents(ctx context.Context, updateUI func()) {
 }
 
 func isMonitoredFile(path string) bool {
+	// Check if it's a temporary file
+	if isTempFile(path) {
+		return false
+	}
 	ext := strings.ToLower(filepath.Ext(path))
 	for _, ve := range getEnabledExts() {
 		if ext == ve {
@@ -533,9 +587,38 @@ func isMonitoredFile(path string) bool {
 	return false
 }
 
-func addFileToBatch(filePath string) {
+func isTempFile(path string) bool {
+	name := strings.ToLower(filepath.Base(path))
+	for _, pattern := range tempFilePatterns {
+		if strings.Contains(name, pattern) || strings.HasPrefix(name, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func formatSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func addFileToBatch(filePath string) (isNewBatch bool) {
 	folder := filepath.Dir(filePath)
 	fileName := filepath.Base(filePath)
+
+	// Get file size
+	var fileSize int64
+	if info, err := os.Stat(filePath); err == nil {
+		fileSize = info.Size()
+	}
 
 	batchesMu.Lock()
 	defer batchesMu.Unlock()
@@ -553,10 +636,12 @@ func addFileToBatch(filePath string) {
 			ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
 			Folder:    folder,
 			Files:     []string{},
+			FileSizes: make(map[string]int64),
 			Status:    "uploading",
 			StartTime: time.Now(),
 		}
 		batches[batch.ID] = batch
+		isNewBatch = true
 	}
 
 	exists := false
@@ -569,12 +654,26 @@ func addFileToBatch(filePath string) {
 	if !exists {
 		batch.Files = append(batch.Files, fileName)
 	}
+
+	// Update file size (may increase during upload)
+	oldSize := batch.FileSizes[fileName]
+	if fileSize > oldSize {
+		batch.TotalSize += fileSize - oldSize
+		batch.FileSizes[fileName] = fileSize
+	}
+
 	batch.LastTime = time.Now()
+	return
 }
 
-func checkCompletions(ctx context.Context, updateUI func()) {
+func checkCompletions(ctx context.Context, updateUI func(), app fyne.App) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+
+	timeout := time.Duration(config.CompletionTimeout) * time.Second
+	if timeout < 10*time.Second {
+		timeout = 30 * time.Second
+	}
 
 	for {
 		select {
@@ -583,8 +682,14 @@ func checkCompletions(ctx context.Context, updateUI func()) {
 		case <-ticker.C:
 			batchesMu.Lock()
 			for _, b := range batches {
-				if b.Status == "uploading" && time.Since(b.LastTime) > 30*time.Second {
+				if b.Status == "uploading" && time.Since(b.LastTime) > timeout {
 					b.Status = "completed"
+					if config.NotifyOnComplete {
+						app.SendNotification(&fyne.Notification{
+							Title:   "FidruaWatch - 上传完成",
+							Content: fmt.Sprintf("批次完成: %s (%d个文件, %s)", filepath.Base(b.Folder), len(b.Files), formatSize(b.TotalSize)),
+						})
+					}
 				}
 			}
 			batchesMu.Unlock()
