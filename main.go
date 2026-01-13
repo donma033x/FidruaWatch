@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -168,6 +169,9 @@ func main() {
 	batchScroll := container.NewVScroll(batchList)
 	batchScroll.SetMinSize(fyne.NewSize(380, 200))
 
+	// Channel for thread-safe UI updates
+	uiUpdateChan := make(chan struct{}, 1)
+
 	var updateBatchList func()
 	updateBatchList = func() {
 		batchList.Objects = nil
@@ -179,10 +183,19 @@ func main() {
 			emptyLabel.Alignment = fyne.TextAlignCenter
 			batchList.Add(emptyLabel)
 		} else {
+			// Sort batches by start time (newest first)
+			sortedBatches := make([]*Batch, 0, len(batches))
 			for _, b := range batches {
-				batch := b
+				sortedBatches = append(sortedBatches, b)
+			}
+			sort.Slice(sortedBatches, func(i, j int) bool {
+				return sortedBatches[i].StartTime.After(sortedBatches[j].StartTime)
+			})
+
+			for _, batch := range sortedBatches {
+				b := batch // capture for closure
 				statusText := ""
-				switch batch.Status {
+				switch b.Status {
 				case "uploading":
 					statusText = "📤 上传中"
 				case "completed":
@@ -191,19 +204,19 @@ func main() {
 					statusText = "✔️ 已签收"
 				}
 
-				folderName := filepath.Base(batch.Folder)
-				headerText := fmt.Sprintf("%s (%d 个文件) - %s", folderName, len(batch.Files), statusText)
+				folderName := filepath.Base(b.Folder)
+				headerText := fmt.Sprintf("%s (%d 个文件) - %s", folderName, len(b.Files), statusText)
 
 				details := container.NewVBox(
-					widget.NewLabel(fmt.Sprintf("📁 %s", batch.Folder)),
-					widget.NewLabel(fmt.Sprintf("⏰ %s", batch.StartTime.Format("15:04:05"))),
+					widget.NewLabel(fmt.Sprintf("📁 %s", b.Folder)),
+					widget.NewLabel(fmt.Sprintf("⏰ %s", b.StartTime.Format("15:04:05"))),
 				)
 
-				if batch.Status == "completed" {
+				if b.Status == "completed" {
 					signBtn := widget.NewButton("✅ 签收此批次", func() {
 						batchesMu.Lock()
-						if b, ok := batches[batch.ID]; ok {
-							b.Status = "signed"
+						if batch, ok := batches[b.ID]; ok {
+							batch.Status = "signed"
 						}
 						batchesMu.Unlock()
 						updateBatchList()
@@ -219,11 +232,32 @@ func main() {
 	}
 	updateBatchList()
 
-	var startBtn, stopBtn *widget.Button
+	// Request UI update (non-blocking, thread-safe)
+	requestUIUpdate := func() {
+		select {
+		case uiUpdateChan <- struct{}{}:
+		default:
+			// Already has pending update
+		}
+	}
+
+	// Background goroutine to process UI updates on main thread
+	go func() {
+		for range uiUpdateChan {
+			updateBatchList()
+		}
+	}()
+
+	var startBtn, stopBtn, folderBtn *widget.Button
 
 	startBtn = widget.NewButton("▶ 开始监控", func() {
 		if monitorPath == "" {
 			dialog.ShowInformation("提示", "请先选择监控文件夹", w)
+			return
+		}
+		// Check if any file type is enabled
+		if len(getEnabledExts()) == 0 {
+			dialog.ShowInformation("提示", "请先在设置中启用至少一种文件类型", w)
 			return
 		}
 		// Create context for this monitoring session
@@ -242,9 +276,10 @@ func main() {
 		statusDesc.SetText(filepath.Base(monitorPath))
 		startBtn.Disable()
 		stopBtn.Enable()
+		folderBtn.Disable() // Disable folder selection during monitoring
 		// Start goroutines with context
-		go handleFileEvents(monitorCtx, updateBatchList)
-		go checkCompletions(monitorCtx, updateBatchList)
+		go handleFileEvents(monitorCtx, requestUIUpdate)
+		go checkCompletions(monitorCtx, requestUIUpdate)
 	})
 
 	stopBtn = widget.NewButton("⏹ 停止", func() {
@@ -261,6 +296,7 @@ func main() {
 		statusDesc.SetText("点击开始监控文件上传")
 		startBtn.Enable()
 		stopBtn.Disable()
+		folderBtn.Enable() // Re-enable folder selection
 	})
 	stopBtn.Disable()
 
@@ -286,7 +322,7 @@ func main() {
 		updateBatchList()
 	})
 
-	folderBtn := widget.NewButton("📁 选择监控文件夹", func() {
+	folderBtn = widget.NewButton("📁 选择监控文件夹", func() {
 		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err != nil || uri == nil {
 				return
