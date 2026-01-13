@@ -57,29 +57,58 @@
         
         <!-- Settings Tab -->
         <div class="tab-content" id="tab-settings">
-            <div class="setting-group">
-                <label>🎬 监控的视频类型</label>
-                <input type="text" id="fileTypes" placeholder="例如: .mp4, .avi, .mkv">
+            <div class="settings-section">
+                <h4>📁 文件监控</h4>
+                <div class="setting-group">
+                    <label>🎬 监控的视频类型</label>
+                    <input type="text" id="fileTypes" placeholder="例如: .mp4, .avi, .mkv">
+                </div>
+                
+                <div class="toggle-row">
+                    <span>📂 监控子文件夹</span>
+                    <div class="toggle active" id="toggleSubdirs"></div>
+                </div>
+                
+                <div class="setting-group">
+                    <label>🚫 忽略的文件夹</label>
+                    <input type="text" id="ignoreFolders" placeholder="用逗号分隔">
+                </div>
             </div>
             
-            <div class="toggle-row">
-                <span>📂 监控子文件夹</span>
-                <div class="toggle active" id="toggleSubdirs"></div>
+            <div class="settings-section">
+                <h4>🔔 通知设置</h4>
+                <div class="toggle-row">
+                    <span>🔊 启用声音提醒</span>
+                    <div class="toggle active" id="toggleSound"></div>
+                </div>
+                
+                <div class="toggle-row">
+                    <span>💬 系统通知</span>
+                    <div class="toggle active" id="toggleNotification"></div>
+                </div>
+                
+                <div class="toggle-row">
+                    <span>📳 上传开始提醒</span>
+                    <div class="toggle active" id="toggleStartAlert"></div>
+                </div>
+                
+                <div class="toggle-row">
+                    <span>✅ 上传完成提醒</span>
+                    <div class="toggle active" id="toggleCompleteAlert"></div>
+                </div>
             </div>
             
-            <div class="toggle-row">
-                <span>🔔 启用声音提醒</span>
-                <div class="toggle active" id="toggleSound"></div>
-            </div>
-            
-            <div class="toggle-row">
-                <span>💾 保存历史记录</span>
-                <div class="toggle active" id="toggleHistory"></div>
-            </div>
-            
-            <div class="setting-group">
-                <label>🚫 忽略的文件夹</label>
-                <input type="text" id="ignoreFolders" placeholder="用逗号分隔">
+            <div class="settings-section">
+                <h4>💾 数据管理</h4>
+                <div class="toggle-row">
+                    <span>📝 保存历史记录</span>
+                    <div class="toggle active" id="toggleHistory"></div>
+                </div>
+                
+                <div class="toggle-row">
+                    <span>🚀 开机自动启动</span>
+                    <div class="toggle" id="toggleAutoStart"></div>
+                </div>
             </div>
             
             <button class="btn-save" id="btnSave">💾 保存设置</button>
