@@ -1,7 +1,7 @@
 # FidruaWatch
 
 <p align="center">
-  <img src="https://cdn.nodeimage.com/i/fluMTPSpZAPNLucVDlHMZiUU8PGqIYoK.webp" width="100" alt="FidruaWatch Logo">
+  <img src="docs/logo.png" width="180" alt="FidruaWatch Logo">
 </p>
 
 <p align="center">
