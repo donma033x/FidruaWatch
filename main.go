@@ -540,8 +540,9 @@ func handleFileEvents(ctx context.Context, updateUI func(), app fyne.App) {
 			if !ok {
 				return
 			}
-			// Handle file create/write events
-			if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
+			// Handle file create/write/rename events
+			// Rename is important for FTP clients that upload to temp file then rename
+			if event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename) != 0 {
 				// Check if new directory was created (for subdirectory monitoring)
 				if config.MonitorSubdirs {
 					if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
