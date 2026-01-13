@@ -1,11 +1,7 @@
 # FidruaWatch
 
 <p align="center">
-  <strong>Professional Batch Video Upload Monitor</strong>
-</p>
-
-<p align="center">
-  <a href="README_CN.md">中文</a> | English
+  <strong>专业的批量文件上传监控工具 | Professional Batch File Upload Monitor</strong>
 </p>
 
 <p align="center">
@@ -16,24 +12,26 @@
 
 ---
 
-## ✨ Features
+## ✨ 功能特性
 
-- 🌐 **Cross-platform** - Windows / macOS / Linux
-- 📁 **Smart Batching** - Files in same directory grouped as one batch
-- 🔔 **Start Notification** - Alert when upload detected
-- ⏱️ **Completion Detection** - Auto-complete after 30s of no activity
-- ✅ **Batch Acknowledgment** - Confirm processed upload batches
-- 🎬 **Video Focused** - Monitor common video formats by default
-- 🚀 **Lightweight** - ~15MB, no WebView dependency
+- 🌐 **跨平台** - Windows / macOS / Linux
+- 📁 **智能归批** - 同目录文件自动归为一个批次
+- 🔔 **即时通知** - 新上传开始和完成时系统通知
+- ⏱️ **可配置超时** - 自定义无活动判定时间（默认30秒）
+- ✅ **批次签收** - 确认已处理的上传批次
+- 📊 **大小统计** - 实时显示批次文件总大小
+- 🚫 **临时文件过滤** - 自动忽略 .tmp/.part 等临时文件
+- 🔄 **FTP友好** - 支持FTP上传的临时文件重命名场景
+- 🚀 **轻量级** - ~15MB，无 WebView 依赖
 
 ---
 
-## 📥 Download
+## 📥 下载
 
-Go to [Releases](https://github.com/donma033x/FidruaWatch/releases) to download:
+前往 [Releases](https://github.com/donma033x/FidruaWatch/releases) 下载:
 
-| Platform | File |
-|----------|------|
+| 平台 | 文件 |
+|------|------|
 | 🪟 Windows | `fidruawatch-windows-amd64.zip` |
 | 🍎 macOS (Intel) | `fidruawatch-darwin-amd64.tar.gz` |
 | 🍎 macOS (Apple Silicon) | `fidruawatch-darwin-arm64.tar.gz` |
@@ -41,42 +39,62 @@ Go to [Releases](https://github.com/donma033x/FidruaWatch/releases) to download:
 
 ---
 
-## 🚀 Usage
+## 🚀 使用方法
 
-1. **Select Folder** - Choose the video upload folder to monitor
-2. **Start Monitoring** - Click "Start" button
-3. **Upload Started** - Get notified when new video files detected
-4. **Upload Completed** - Get notified after 30s of no new file activity
-5. **Acknowledge** - Click to confirm processed batches
-
----
-
-## 🎬 Supported File Formats
-
-Configurable in Settings tab:
-
-| Category | Extensions |
-|----------|------------|
-| 🎬 Video | `.mp4` `.avi` `.mkv` `.mov` `.wmv` `.flv` `.webm` `.m4v` `.mpeg` `.mpg` `.3gp` `.ts` |
-| 🖼 Image | `.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.svg` `.ico` `.tiff` `.psd` |
-| 🎵 Audio | `.mp3` `.wav` `.flac` `.aac` `.ogg` `.wma` `.m4a` `.opus` |
-| 📄 Document | `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.txt` `.md` `.csv` |
-| 📦 Archive | `.zip` `.rar` `.7z` `.tar` `.gz` `.bz2` `.xz` |
-| ✏️ Custom | Add any extension in settings |
+1. **选择文件夹** - 选择要监控的上传目录（如FTP根目录）
+2. **开始监控** - 点击"开始监控"按钮
+3. **上传开始** - 检测到新文件时收到系统通知
+4. **上传完成** - 无新文件活动超过设定时间后自动标记完成
+5. **批次签收** - 点击签收确认已处理的批次
 
 ---
 
-## 🛠️ Build from Source
+## ⚙️ 设置选项
 
-### Requirements
+### 文件类型
+
+| 类型 | 扩展名 |
+|------|--------|
+| 🎬 视频 | `.mp4` `.avi` `.mkv` `.mov` `.wmv` `.flv` `.webm` `.m4v` `.mpeg` `.mpg` `.3gp` `.ts` |
+| 🖼 图片 | `.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.svg` `.ico` `.tiff` `.psd` |
+| 🎵 音频 | `.mp3` `.wav` `.flac` `.aac` `.ogg` `.wma` `.m4a` `.opus` |
+| 📄 文档 | `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.txt` `.md` `.csv` |
+| 📦 压缩包 | `.zip` `.rar` `.7z` `.tar` `.gz` `.bz2` `.xz` |
+| ✏️ 自定义 | 在设置中添加任意扩展名 |
+
+### 其他设置
+
+- **监控子文件夹** - 是否递归监控子目录
+- **新上传时通知** - 检测到新批次时发送系统通知
+- **上传完成时通知** - 批次完成时发送系统通知
+- **完成超时(秒)** - 无新文件写入多久后判定上传完成（默认30秒，最小10秒）
+
+---
+
+## 🔧 FTP 监控场景
+
+本工具特别适合监控 FTP/SFTP 服务器的上传目录：
+
+- ✅ 自动过滤 FTP 客户端产生的临时文件
+- ✅ 支持上传完成后重命名的场景
+- ✅ 大文件长时间上传不会误判完成
+- ✅ 可配置超时适应不同网络环境
+
+**注意**: 监控目录需要是本地挂载的路径，网络映射驱动器可能不支持实时文件监控。
+
+---
+
+## 🛠️ 从源码构建
+
+### 环境要求
 
 - [Go](https://golang.org/) >= 1.21
-- GCC (for CGO)
+- GCC (CGO 需要)
   - Windows: MinGW-w64
   - macOS: Xcode Command Line Tools
   - Linux: `gcc`, `libgl1-mesa-dev`, `xorg-dev`
 
-### Build
+### 构建命令
 
 ```bash
 git clone https://github.com/donma033x/FidruaWatch.git
@@ -84,15 +102,15 @@ cd FidruaWatch
 go build -o fidruawatch .
 ```
 
-### Tech Stack
+### 技术栈
 
 - **GUI**: [Fyne](https://fyne.io/) v2
-- **File Watcher**: fsnotify
-- **Language**: Go
+- **文件监控**: fsnotify
+- **语言**: Go
 
 ---
 
-## 📄 License
+## 📄 许可证
 
 MIT License
 
