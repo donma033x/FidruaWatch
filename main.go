@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"os"
@@ -29,35 +30,119 @@ type Batch struct {
 	LastTime  time.Time
 }
 
+// Config represents app settings
+type Config struct {
+	VideoEnabled    bool     `json:"video_enabled"`
+	ImageEnabled    bool     `json:"image_enabled"`
+	AudioEnabled    bool     `json:"audio_enabled"`
+	DocEnabled      bool     `json:"doc_enabled"`
+	ArchiveEnabled  bool     `json:"archive_enabled"`
+	CustomExts      string   `json:"custom_exts"`
+	MonitorSubdirs  bool     `json:"monitor_subdirs"`
+}
+
 var (
 	monitorPath  string
 	isMonitoring bool
 	batches      = make(map[string]*Batch)
 	batchesMu    sync.RWMutex
 	watcher      *fsnotify.Watcher
-	videoExts    = []string{".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".ts"}
-	colorCyan    = color.NRGBA{R: 0, G: 217, B: 255, A: 255}
-	colorGreen   = color.NRGBA{R: 0, G: 255, B: 136, A: 255}
-	colorGray    = color.NRGBA{R: 128, G: 128, B: 128, A: 255}
+	config       Config
+	configPath   string
+
+	// File type categories
+	videoExts   = []string{".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".ts"}
+	imageExts   = []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".psd"}
+	audioExts   = []string{".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a", ".opus"}
+	docExts     = []string{".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md", ".csv"}
+	archiveExts = []string{".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"}
+
+	colorCyan  = color.NRGBA{R: 0, G: 217, B: 255, A: 255}
+	colorGreen = color.NRGBA{R: 0, G: 255, B: 136, A: 255}
+	colorGray  = color.NRGBA{R: 128, G: 128, B: 128, A: 255}
 )
+
+func init() {
+	// Default config
+	config = Config{
+		VideoEnabled:   true,
+		ImageEnabled:   false,
+		AudioEnabled:   false,
+		DocEnabled:     false,
+		ArchiveEnabled: false,
+		CustomExts:     "",
+		MonitorSubdirs: true,
+	}
+
+	// Config file path
+	configDir, _ := os.UserConfigDir()
+	configPath = filepath.Join(configDir, "fidruawatch", "config.json")
+	loadConfig()
+}
+
+func loadConfig() {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	json.Unmarshal(data, &config)
+}
+
+func saveConfig() {
+	os.MkdirAll(filepath.Dir(configPath), 0755)
+	data, _ := json.MarshalIndent(config, "", "  ")
+	os.WriteFile(configPath, data, 0644)
+}
+
+func getEnabledExts() []string {
+	var exts []string
+	if config.VideoEnabled {
+		exts = append(exts, videoExts...)
+	}
+	if config.ImageEnabled {
+		exts = append(exts, imageExts...)
+	}
+	if config.AudioEnabled {
+		exts = append(exts, audioExts...)
+	}
+	if config.DocEnabled {
+		exts = append(exts, docExts...)
+	}
+	if config.ArchiveEnabled {
+		exts = append(exts, archiveExts...)
+	}
+	// Custom extensions
+	if config.CustomExts != "" {
+		custom := strings.Split(config.CustomExts, ",")
+		for _, ext := range custom {
+			ext = strings.TrimSpace(ext)
+			if ext != "" {
+				if !strings.HasPrefix(ext, ".") {
+					ext = "." + ext
+				}
+				exts = append(exts, strings.ToLower(ext))
+			}
+		}
+	}
+	return exts
+}
 
 func main() {
 	a := app.NewWithID("com.fidrua.watch")
 	a.Settings().SetTheme(theme.DarkTheme())
 	w := a.NewWindow("FidruaWatch")
-	w.Resize(fyne.NewSize(420, 680))
+	w.Resize(fyne.NewSize(420, 720))
 	w.CenterOnScreen()
 
-	// Title
+	// ===== Monitor Tab =====
 	title := canvas.NewText("FidruaWatch", colorCyan)
 	title.TextSize = 24
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	title.Alignment = fyne.TextAlignCenter
 
-	subtitle := widget.NewLabel("专业的批量视频上传监控工具")
+	subtitle := widget.NewLabel("专业的批量文件上传监控工具")
 	subtitle.Alignment = fyne.TextAlignCenter
 
-	// Status widgets
 	statusIcon := canvas.NewText("⏸", colorGray)
 	statusIcon.TextSize = 36
 	statusIcon.Alignment = fyne.TextAlignCenter
@@ -66,20 +151,17 @@ func main() {
 	statusTitle.Alignment = fyne.TextAlignCenter
 	statusTitle.TextStyle = fyne.TextStyle{Bold: true}
 
-	statusDesc := widget.NewLabel("点击开始监控视频上传")
+	statusDesc := widget.NewLabel("点击开始监控文件上传")
 	statusDesc.Alignment = fyne.TextAlignCenter
 
-	// Folder path display
 	folderPath := widget.NewLabel("未选择文件夹")
 	folderPath.Alignment = fyne.TextAlignCenter
 	folderPath.Wrapping = fyne.TextWrapWord
 
-	// Batch list
 	batchList := container.NewVBox()
 	batchScroll := container.NewVScroll(batchList)
-	batchScroll.SetMinSize(fyne.NewSize(380, 250))
+	batchScroll.SetMinSize(fyne.NewSize(380, 200))
 
-	// Update batch list UI
 	var updateBatchList func()
 	updateBatchList = func() {
 		batchList.Objects = nil
@@ -129,11 +211,8 @@ func main() {
 		}
 		batchList.Refresh()
 	}
-
-	// Initialize batch list
 	updateBatchList()
 
-	// Buttons
 	var startBtn, stopBtn *widget.Button
 
 	startBtn = widget.NewButton("▶ 开始监控", func() {
@@ -153,8 +232,6 @@ func main() {
 		statusDesc.SetText(filepath.Base(monitorPath))
 		startBtn.Disable()
 		stopBtn.Enable()
-
-		// Start completion checker
 		go checkCompletions(updateBatchList)
 	})
 
@@ -165,7 +242,7 @@ func main() {
 		statusIcon.Color = colorGray
 		statusIcon.Refresh()
 		statusTitle.SetText("监控已停止")
-		statusDesc.SetText("点击开始监控视频上传")
+		statusDesc.SetText("点击开始监控文件上传")
 		startBtn.Enable()
 		stopBtn.Disable()
 	})
@@ -193,7 +270,6 @@ func main() {
 		updateBatchList()
 	})
 
-	// Folder select button
 	folderBtn := widget.NewButton("📁 选择监控文件夹", func() {
 		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err != nil || uri == nil {
@@ -204,49 +280,114 @@ func main() {
 		}, w)
 	})
 
-	// Layout
-	header := container.NewVBox(
+	monitorTab := container.NewVBox(
 		container.NewCenter(title),
 		container.NewCenter(subtitle),
 		widget.NewSeparator(),
-	)
-
-	statusCard := container.NewVBox(
 		container.NewCenter(statusIcon),
 		container.NewCenter(statusTitle),
 		container.NewCenter(statusDesc),
-	)
-
-	folderCard := container.NewVBox(
+		widget.NewSeparator(),
 		folderBtn,
 		container.NewCenter(folderPath),
-	)
-
-	btnRow1 := container.NewGridWithColumns(2, startBtn, stopBtn)
-	btnRow2 := container.NewGridWithColumns(2, signAllBtn, clearBtn)
-
-	batchHeader := widget.NewLabel("📋 上传批次 (同目录文件为一批，30秒无变动视为完成)")
-	batchHeader.TextStyle = fyne.TextStyle{Bold: true}
-
-	batchSection := container.NewVBox(
-		batchHeader,
+		container.NewGridWithColumns(2, startBtn, stopBtn),
+		container.NewGridWithColumns(2, signAllBtn, clearBtn),
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("📋 上传批次", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		batchScroll,
 	)
 
-	content := container.NewVBox(
-		header,
-		statusCard,
+	// ===== Settings Tab =====
+	videoCheck := widget.NewCheck("🎬 视频 (.mp4, .avi, .mkv, .mov...)", func(checked bool) {
+		config.VideoEnabled = checked
+	})
+	videoCheck.Checked = config.VideoEnabled
+
+	imageCheck := widget.NewCheck("🖼 图片 (.jpg, .png, .gif, .webp...)", func(checked bool) {
+		config.ImageEnabled = checked
+	})
+	imageCheck.Checked = config.ImageEnabled
+
+	audioCheck := widget.NewCheck("🎵 音频 (.mp3, .wav, .flac, .aac...)", func(checked bool) {
+		config.AudioEnabled = checked
+	})
+	audioCheck.Checked = config.AudioEnabled
+
+	docCheck := widget.NewCheck("📄 文档 (.pdf, .doc, .xls, .ppt...)", func(checked bool) {
+		config.DocEnabled = checked
+	})
+	docCheck.Checked = config.DocEnabled
+
+	archiveCheck := widget.NewCheck("📦 压缩包 (.zip, .rar, .7z, .tar...)", func(checked bool) {
+		config.ArchiveEnabled = checked
+	})
+	archiveCheck.Checked = config.ArchiveEnabled
+
+	customEntry := widget.NewEntry()
+	customEntry.SetPlaceHolder("例如: .psd, .ai, .sketch")
+	customEntry.SetText(config.CustomExts)
+
+	subdirCheck := widget.NewCheck("📂 监控子文件夹", func(checked bool) {
+		config.MonitorSubdirs = checked
+	})
+	subdirCheck.Checked = config.MonitorSubdirs
+
+	saveBtn := widget.NewButton("💾 保存设置", func() {
+		config.CustomExts = customEntry.Text
+		saveConfig()
+		dialog.ShowInformation("成功", "设置已保存", w)
+	})
+
+	settingsTab := container.NewVBox(
+		widget.NewLabelWithStyle("📁 监控的文件类型", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewSeparator(),
-		folderCard,
-		btnRow1,
-		btnRow2,
+		videoCheck,
+		imageCheck,
+		audioCheck,
+		docCheck,
+		archiveCheck,
 		widget.NewSeparator(),
-		batchSection,
+		widget.NewLabelWithStyle("✏️ 自定义后缀 (逗号分隔)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		customEntry,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("⚙️ 其他设置", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		subdirCheck,
+		widget.NewSeparator(),
+		saveBtn,
 	)
 
-	w.SetContent(container.NewPadded(content))
+	// ===== About Tab =====
+	aboutTitle := canvas.NewText("FidruaWatch", colorCyan)
+	aboutTitle.TextSize = 28
+	aboutTitle.TextStyle = fyne.TextStyle{Bold: true}
+	aboutTitle.Alignment = fyne.TextAlignCenter
 
-	// Set up file event handler
+	aboutTab := container.NewVBox(
+		container.NewCenter(aboutTitle),
+		widget.NewLabelWithStyle("v2.0.0", fyne.TextAlignCenter, fyne.TextStyle{}),
+		widget.NewSeparator(),
+		widget.NewLabel("专业的批量文件上传监控工具"),
+		widget.NewLabel(""),
+		widget.NewLabel("✨ 同目录文件自动归批"),
+		widget.NewLabel("✨ 开始上传即时通知"),
+		widget.NewLabel("✨ 30秒无变动自动完成"),
+		widget.NewLabel("✨ 批次签收管理"),
+		widget.NewLabel("✨ 跨平台支持"),
+		widget.NewLabel("✨ 自定义文件类型"),
+		widget.NewLabel(""),
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("© 2024 Fidrua", fyne.TextAlignCenter, fyne.TextStyle{}),
+	)
+
+	// ===== Tabs =====
+	tabs := container.NewAppTabs(
+		container.NewTabItem("📡 监控", container.NewPadded(monitorTab)),
+		container.NewTabItem("⚙️ 设置", container.NewPadded(settingsTab)),
+		container.NewTabItem("ℹ️ 关于", container.NewPadded(aboutTab)),
+	)
+
+	w.SetContent(tabs)
+
 	go handleFileEvents(updateBatchList)
 
 	w.ShowAndRun()
@@ -259,16 +400,19 @@ func startMonitor(path string) error {
 		return err
 	}
 
-	// Add directory recursively
-	err = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
+	if config.MonitorSubdirs {
+		err = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				watcher.Add(p)
+			}
 			return nil
-		}
-		if info.IsDir() {
-			watcher.Add(p)
-		}
-		return nil
-	})
+		})
+	} else {
+		err = watcher.Add(path)
+	}
 
 	return err
 }
@@ -293,7 +437,7 @@ func handleFileEvents(updateUI func()) {
 				return
 			}
 			if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
-				if isVideoFile(event.Name) {
+				if isMonitoredFile(event.Name) {
 					addFileToBatch(event.Name)
 					updateUI()
 				}
@@ -308,9 +452,9 @@ func handleFileEvents(updateUI func()) {
 	}
 }
 
-func isVideoFile(path string) bool {
+func isMonitoredFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
-	for _, ve := range videoExts {
+	for _, ve := range getEnabledExts() {
 		if ext == ve {
 			return true
 		}
@@ -325,7 +469,6 @@ func addFileToBatch(filePath string) {
 	batchesMu.Lock()
 	defer batchesMu.Unlock()
 
-	// Find or create batch for this folder
 	var batch *Batch
 	for _, b := range batches {
 		if b.Folder == folder && b.Status == "uploading" {
@@ -345,7 +488,6 @@ func addFileToBatch(filePath string) {
 		batches[batch.ID] = batch
 	}
 
-	// Add file if not exists
 	exists := false
 	for _, f := range batch.Files {
 		if f == fileName {

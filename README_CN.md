@@ -53,13 +53,16 @@
 
 ## 🎬 支持的文件格式
 
-默认监控的格式：
+在设置页面可配置：
 
-```
-.mp4  .avi  .mkv  .mov  .wmv  .flv  .webm  .m4v  .mpeg  .mpg  .3gp  .ts
-```
-
-> 💡 **提示**：你可以监控任何文件类型，只需修改 `main.go` 中的 `videoExts` 变量并重新构建。例如，添加 `.jpg`、`.png` 监控图片，或 `.pdf`、`.doc` 监控文档。
+| 类型 | 后缀 |
+|------|------|
+| 🎬 视频 | `.mp4` `.avi` `.mkv` `.mov` `.wmv` `.flv` `.webm` `.m4v` `.mpeg` `.mpg` `.3gp` `.ts` |
+| 🖼 图片 | `.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.svg` `.ico` `.tiff` `.psd` |
+| 🎵 音频 | `.mp3` `.wav` `.flac` `.aac` `.ogg` `.wma` `.m4a` `.opus` |
+| 📄 文档 | `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.txt` `.md` `.csv` |
+| 📦 压缩包 | `.zip` `.rar` `.7z` `.tar` `.gz` `.bz2` `.xz` |
+| ✏️ 自定义 | 在设置中添加任意后缀 |
 
 ---
 

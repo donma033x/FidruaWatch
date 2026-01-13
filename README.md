@@ -53,13 +53,16 @@ Go to [Releases](https://github.com/donma033x/FidruaWatch/releases) to download:
 
 ## 🎬 Supported File Formats
 
-Default monitored formats:
+Configurable in Settings tab:
 
-```
-.mp4  .avi  .mkv  .mov  .wmv  .flv  .webm  .m4v  .mpeg  .mpg  .3gp  .ts
-```
-
-> 💡 **Tip**: You can monitor any file type by modifying the `videoExts` variable in `main.go` and rebuilding. For example, add `.jpg`, `.png` for images, or `.pdf`, `.doc` for documents.
+| Category | Extensions |
+|----------|------------|
+| 🎬 Video | `.mp4` `.avi` `.mkv` `.mov` `.wmv` `.flv` `.webm` `.m4v` `.mpeg` `.mpg` `.3gp` `.ts` |
+| 🖼 Image | `.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.svg` `.ico` `.tiff` `.psd` |
+| 🎵 Audio | `.mp3` `.wav` `.flac` `.aac` `.ogg` `.wma` `.m4a` `.opus` |
+| 📄 Document | `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.txt` `.md` `.csv` |
+| 📦 Archive | `.zip` `.rar` `.7z` `.tar` `.gz` `.bz2` `.xz` |
+| ✏️ Custom | Add any extension in settings |
 
 ---
 
