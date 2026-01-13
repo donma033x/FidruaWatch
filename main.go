@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"image/color"
@@ -47,8 +48,13 @@ var (
 	batches      = make(map[string]*Batch)
 	batchesMu    sync.RWMutex
 	watcher      *fsnotify.Watcher
+	watcherMu    sync.Mutex
 	config       Config
 	configPath   string
+
+	// Context for controlling goroutines
+	monitorCtx    context.Context
+	monitorCancel context.CancelFunc
 
 	// File type categories
 	videoExts   = []string{".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpeg", ".mpg", ".3gp", ".ts"}
@@ -220,7 +226,11 @@ func main() {
 			dialog.ShowInformation("提示", "请先选择监控文件夹", w)
 			return
 		}
+		// Create context for this monitoring session
+		monitorCtx, monitorCancel = context.WithCancel(context.Background())
+		
 		if err := startMonitor(monitorPath); err != nil {
+			monitorCancel()
 			dialog.ShowError(err, w)
 			return
 		}
@@ -232,10 +242,16 @@ func main() {
 		statusDesc.SetText(filepath.Base(monitorPath))
 		startBtn.Disable()
 		stopBtn.Enable()
-		go checkCompletions(updateBatchList)
+		// Start goroutines with context
+		go handleFileEvents(monitorCtx, updateBatchList)
+		go checkCompletions(monitorCtx, updateBatchList)
 	})
 
 	stopBtn = widget.NewButton("⏹ 停止", func() {
+		// Cancel context first to stop goroutines
+		if monitorCancel != nil {
+			monitorCancel()
+		}
 		stopMonitor()
 		isMonitoring = false
 		statusIcon.Text = "⏸"
@@ -387,13 +403,13 @@ func main() {
 	)
 
 	w.SetContent(tabs)
-
-	go handleFileEvents(updateBatchList)
-
 	w.ShowAndRun()
 }
 
 func startMonitor(path string) error {
+	watcherMu.Lock()
+	defer watcherMu.Unlock()
+
 	var err error
 	watcher, err = fsnotify.NewWatcher()
 	if err != nil {
@@ -418,36 +434,55 @@ func startMonitor(path string) error {
 }
 
 func stopMonitor() {
+	watcherMu.Lock()
+	defer watcherMu.Unlock()
+
 	if watcher != nil {
 		watcher.Close()
 		watcher = nil
 	}
 }
 
-func handleFileEvents(updateUI func()) {
-	for {
-		if watcher == nil {
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
+func handleFileEvents(ctx context.Context, updateUI func()) {
+	watcherMu.Lock()
+	w := watcher
+	watcherMu.Unlock()
 
+	if w == nil {
+		return
+	}
+
+	for {
 		select {
-		case event, ok := <-watcher.Events:
+		case <-ctx.Done():
+			return
+		case event, ok := <-w.Events:
 			if !ok {
 				return
 			}
+			// Handle file create/write events
 			if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
+				// Check if new directory was created (for subdirectory monitoring)
+				if config.MonitorSubdirs {
+					if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+						watcherMu.Lock()
+						if watcher != nil {
+							watcher.Add(event.Name)
+						}
+						watcherMu.Unlock()
+						continue
+					}
+				}
+				// Handle monitored files
 				if isMonitoredFile(event.Name) {
 					addFileToBatch(event.Name)
 					updateUI()
 				}
 			}
-		case _, ok := <-watcher.Errors:
+		case _, ok := <-w.Errors:
 			if !ok {
 				return
 			}
-		default:
-			time.Sleep(50 * time.Millisecond)
 		}
 	}
 }
@@ -501,18 +536,24 @@ func addFileToBatch(filePath string) {
 	batch.LastTime = time.Now()
 }
 
-func checkCompletions(updateUI func()) {
-	for isMonitoring {
-		time.Sleep(5 * time.Second)
+func checkCompletions(ctx context.Context, updateUI func()) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
-		batchesMu.Lock()
-		for _, b := range batches {
-			if b.Status == "uploading" && time.Since(b.LastTime) > 30*time.Second {
-				b.Status = "completed"
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			batchesMu.Lock()
+			for _, b := range batches {
+				if b.Status == "uploading" && time.Since(b.LastTime) > 30*time.Second {
+					b.Status = "completed"
+				}
 			}
-		}
-		batchesMu.Unlock()
+			batchesMu.Unlock()
 
-		updateUI()
+			updateUI()
+		}
 	}
 }
