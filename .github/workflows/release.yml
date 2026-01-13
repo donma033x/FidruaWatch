@@ -14,16 +14,16 @@ jobs:
         include:
           - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
-            name: 'macOS-ARM64'
+            rust_target: 'aarch64-apple-darwin'
           - platform: 'macos-latest'
             args: '--target x86_64-apple-darwin'
-            name: 'macOS-Intel'
+            rust_target: 'x86_64-apple-darwin'
           - platform: 'ubuntu-22.04'
             args: ''
-            name: 'Linux'
+            rust_target: ''
           - platform: 'windows-latest'
             args: ''
-            name: 'Windows'
+            rust_target: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -35,9 +35,9 @@ jobs:
           node-version: 20
 
       - name: Install Rust stable
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rust_target }}
 
       - name: Install dependencies (Ubuntu)
         if: matrix.platform == 'ubuntu-22.04'
@@ -64,12 +64,6 @@ jobs:
             | 🍎 macOS (Intel) | `_x64.dmg` |
             | 🍎 macOS (Apple Silicon) | `_aarch64.dmg` |
             | 🐧 Linux | `.AppImage` 或 `.deb` |
-            
-            ## ✨ 功能
-            - 📁 同目录文件自动归为一批
-            - 🔔 开始上传即时通知
-            - ⏱️ 30秒无变动自动完成
-            - ✅ 批次签收管理
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
