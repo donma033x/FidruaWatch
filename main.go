@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/color"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,7 +34,6 @@ type Batch struct {
 	Status    string // "uploading", "completed", "signed"
 	StartTime time.Time
 	LastTime  time.Time
-	Notified  bool
 }
 
 // Config represents app settings
@@ -48,6 +48,8 @@ type Config struct {
 	CompletionTimeout int    `json:"completion_timeout"`
 	NotifyOnStart     bool   `json:"notify_on_start"`
 	NotifyOnComplete  bool   `json:"notify_on_complete"`
+	SoundEnabled      bool   `json:"sound_enabled"`
+	SaveHistory       bool   `json:"save_history"`
 }
 
 var tempFilePatterns = []string{
@@ -73,13 +75,11 @@ var (
 	docExts     = []string{".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md", ".csv"}
 	archiveExts = []string{".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"}
 
-	// Colors matching the design
-	colorPurple    = color.NRGBA{R: 138, G: 43, B: 226, A: 255}
-	colorCyan      = color.NRGBA{R: 0, G: 255, B: 255, A: 255}
-	colorGreen     = color.NRGBA{R: 0, G: 255, B: 136, A: 255}
-	colorGray      = color.NRGBA{R: 128, G: 128, B: 128, A: 255}
-	colorDarkBg    = color.NRGBA{R: 26, G: 26, B: 46, A: 255}
-	colorCardBg    = color.NRGBA{R: 40, G: 40, B: 70, A: 255}
+	// Colors
+	colorPurple = color.NRGBA{R: 138, G: 43, B: 226, A: 255}
+	colorCyan   = color.NRGBA{R: 0, G: 255, B: 255, A: 255}
+	colorGreen  = color.NRGBA{R: 0, G: 255, B: 136, A: 255}
+	colorGray   = color.NRGBA{R: 128, G: 128, B: 128, A: 255}
 )
 
 func init() {
@@ -94,6 +94,8 @@ func init() {
 		CompletionTimeout: 30,
 		NotifyOnStart:     true,
 		NotifyOnComplete:  true,
+		SoundEnabled:      true,
+		SaveHistory:       true,
 	}
 	configDir, _ := os.UserConfigDir()
 	configPath = filepath.Join(configDir, "fidruawatch", "config.json")
@@ -150,42 +152,42 @@ func main() {
 	a := app.NewWithID("com.fidrua.watch")
 	a.Settings().SetTheme(theme.DarkTheme())
 	w := a.NewWindow("FidruaWatch")
-	w.Resize(fyne.NewSize(400, 650))
+	w.Resize(fyne.NewSize(420, 700))
 	w.CenterOnScreen()
 
-	// Title
+	// ========== MONITOR TAB ==========
 	title := canvas.NewText("FidruaWatch", colorPurple)
-	title.TextSize = 28
+	title.TextSize = 32
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	title.Alignment = fyne.TextAlignCenter
 
-	// Status text
 	statusText := widget.NewLabel("点击开始监控")
 	statusText.Alignment = fyne.TextAlignCenter
 
-	// Big play/pause button
-	var playBtn *widget.Button
-	playBtn = widget.NewButton("▶", nil)
-	playBtn.Importance = widget.HighImportance
+	// Large play button
+	playBtnText := canvas.NewText("▶", color.White)
+	playBtnText.TextSize = 48
+	playBtnText.Alignment = fyne.TextAlignCenter
+
+	playBtnBg := canvas.NewCircle(colorPurple)
+	playBtnBg.StrokeColor = color.NRGBA{R: 100, G: 100, B: 180, A: 255}
+	playBtnBg.StrokeWidth = 3
+
+	playBtnContainer := container.NewStack(playBtnBg, container.NewCenter(playBtnText))
+	playBtnContainer.Resize(fyne.NewSize(100, 100))
 
 	// Folder selection
 	folderLabel := widget.NewLabel("未选择文件夹")
 	folderLabel.Alignment = fyne.TextAlignCenter
+	folderLabel.Truncation = fyne.TextTruncateEllipsis
 
-	folderBtn := widget.NewButton("📁 选择监控文件夹", func() {
-		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
-			if err != nil || uri == nil {
-				return
-			}
-			monitorPath = uri.Path()
-			folderLabel.SetText(monitorPath)
-		}, w)
-	})
+	folderBtn := widget.NewButton("📁 选择监控文件夹", nil)
+	folderBtn.Importance = widget.HighImportance
 
 	// Batch list
 	batchList := container.NewVBox()
 	batchScroll := container.NewVScroll(batchList)
-	batchScroll.SetMinSize(fyne.NewSize(360, 250))
+	batchScroll.SetMinSize(fyne.NewSize(380, 220))
 
 	// UI update channel
 	uiUpdateChan := make(chan struct{}, 1)
@@ -199,7 +201,7 @@ func main() {
 		if len(batches) == 0 {
 			emptyLabel := widget.NewLabel("暂无上传批次")
 			emptyLabel.Alignment = fyne.TextAlignCenter
-			batchList.Add(emptyLabel)
+			batchList.Add(container.NewCenter(emptyLabel))
 		} else {
 			sortedBatches := make([]*Batch, 0, len(batches))
 			for _, b := range batches {
@@ -211,57 +213,8 @@ func main() {
 
 			for _, batch := range sortedBatches {
 				b := batch
-				
-				// Status indicator color
-				var statusColor color.Color
-				var statusLabel string
-				switch b.Status {
-				case "uploading":
-					statusColor = colorCyan
-					statusLabel = "上传中"
-				case "completed":
-					statusColor = colorGreen
-					statusLabel = "已完成"
-				case "signed":
-					statusColor = colorGray
-					statusLabel = "已签收"
-				}
-
-				// Create batch card
-				folderName := filepath.Base(b.Folder)
-				titleText := fmt.Sprintf("📁 %s（%d个文件）", folderName, len(b.Files))
-				timeText := fmt.Sprintf("🕐 %s %s", b.StartTime.Format("15:04:05"), statusLabel)
-
-				titleLabel := widget.NewLabel(titleText)
-				titleLabel.TextStyle = fyne.TextStyle{Bold: true}
-				
-				timeLabel := widget.NewLabel(timeText)
-				timeLabel.TextStyle = fyne.TextStyle{}
-
-				cardContent := container.NewVBox(titleLabel, timeLabel)
-
-				if b.Status == "completed" {
-					signBtn := widget.NewButton("✅ 签收此批次", func() {
-						batchesMu.Lock()
-						if batch, ok := batches[b.ID]; ok {
-							batch.Status = "signed"
-						}
-						batchesMu.Unlock()
-						updateBatchList()
-					})
-					signBtn.Importance = widget.SuccessImportance
-					cardContent.Add(signBtn)
-				}
-
-				// Color indicator bar
-				colorBar := canvas.NewRectangle(statusColor)
-				colorBar.SetMinSize(fyne.NewSize(4, 60))
-
-				card := container.NewHBox(colorBar, cardContent)
-				cardBg := canvas.NewRectangle(colorCardBg)
-				cardBg.SetMinSize(fyne.NewSize(360, 70))
-				
-				batchList.Add(container.NewStack(cardBg, container.NewPadded(card)))
+				card := createBatchCard(b, updateBatchList)
+				batchList.Add(card)
 			}
 		}
 		batchList.Refresh()
@@ -281,8 +234,19 @@ func main() {
 		}
 	}()
 
-	// Play button action
-	playBtn.OnTapped = func() {
+	// Folder button action
+	folderBtn.OnTapped = func() {
+		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+			if err != nil || uri == nil {
+				return
+			}
+			monitorPath = uri.Path()
+			folderLabel.SetText(monitorPath)
+		}, w)
+	}
+
+	// Play button click handler - using a tappable container
+	playTappable := newTappableContainer(playBtnContainer, func() {
 		if !isMonitoring {
 			// Start monitoring
 			if monitorPath == "" {
@@ -293,19 +257,22 @@ func main() {
 				dialog.ShowInformation("提示", "请先在设置中启用至少一种文件类型", w)
 				return
 			}
-			
+
 			monitorCtx, monitorCancel = context.WithCancel(context.Background())
 			if err := startMonitor(monitorPath); err != nil {
 				monitorCancel()
 				dialog.ShowError(err, w)
 				return
 			}
-			
+
 			isMonitoring = true
-			playBtn.SetText("⏹")
+			playBtnText.Text = "⏹"
+			playBtnText.Refresh()
+			playBtnBg.FillColor = colorGreen
+			playBtnBg.Refresh()
 			statusText.SetText("正在监控: " + filepath.Base(monitorPath))
 			folderBtn.Disable()
-			
+
 			go handleFileEvents(monitorCtx, requestUIUpdate, a)
 			go checkCompletions(monitorCtx, requestUIUpdate, a)
 		} else {
@@ -315,13 +282,16 @@ func main() {
 			}
 			stopMonitor()
 			isMonitoring = false
-			playBtn.SetText("▶")
+			playBtnText.Text = "▶"
+			playBtnText.Refresh()
+			playBtnBg.FillColor = colorPurple
+			playBtnBg.Refresh()
 			statusText.SetText("点击开始监控")
 			folderBtn.Enable()
 		}
-	}
+	})
 
-	// Sign all button
+	// Sign all & clear buttons
 	signAllBtn := widget.NewButton("✅ 全部签收", func() {
 		batchesMu.Lock()
 		for _, b := range batches {
@@ -333,7 +303,6 @@ func main() {
 		updateBatchList()
 	})
 
-	// Clear button
 	clearBtn := widget.NewButton("🗑", func() {
 		batchesMu.Lock()
 		for id, b := range batches {
@@ -345,19 +314,17 @@ func main() {
 		updateBatchList()
 	})
 
-	// Batch header
 	batchHeader := container.NewHBox(
-		widget.NewLabel("📋 上传批次"),
+		widget.NewLabelWithStyle("📋 上传批次", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		layout.NewSpacer(),
 		signAllBtn,
 		clearBtn,
 	)
 
-	// Monitor tab content
-	monitorTab := container.NewVBox(
+	monitorContent := container.NewVBox(
 		container.NewCenter(title),
 		widget.NewSeparator(),
-		container.NewCenter(playBtn),
+		container.NewPadded(container.NewCenter(playTappable)),
 		container.NewCenter(statusText),
 		widget.NewSeparator(),
 		folderBtn,
@@ -367,39 +334,55 @@ func main() {
 		batchScroll,
 	)
 
-	// Settings tab
-	videoCheck := widget.NewCheck("🎬 视频", func(checked bool) { config.VideoEnabled = checked })
-	videoCheck.Checked = config.VideoEnabled
-	imageCheck := widget.NewCheck("🖼 图片", func(checked bool) { config.ImageEnabled = checked })
-	imageCheck.Checked = config.ImageEnabled
-	audioCheck := widget.NewCheck("🎵 音频", func(checked bool) { config.AudioEnabled = checked })
-	audioCheck.Checked = config.AudioEnabled
-	docCheck := widget.NewCheck("📄 文档", func(checked bool) { config.DocEnabled = checked })
-	docCheck.Checked = config.DocEnabled
-	archiveCheck := widget.NewCheck("📦 压缩包", func(checked bool) { config.ArchiveEnabled = checked })
-	archiveCheck.Checked = config.ArchiveEnabled
-	
-	customEntry := widget.NewEntry()
-	customEntry.SetPlaceHolder("自定义后缀，如: .psd, .ai")
-	customEntry.SetText(config.CustomExts)
+	// ========== SETTINGS TAB ==========
+	// File monitoring section
+	fileTypeBtn := widget.NewButton("⚙️ 设置监控的文件类型", func() {
+		showFileTypeDialog(w)
+	})
+	fileTypeBtn.Importance = widget.MediumImportance
 
-	subdirCheck := widget.NewCheck("📂 监控子文件夹", func(checked bool) { config.MonitorSubdirs = checked })
+	subdirCheck := widget.NewCheck("📁 监控子文件夹", func(checked bool) {
+		config.MonitorSubdirs = checked
+	})
 	subdirCheck.Checked = config.MonitorSubdirs
-	
-	notifyStartCheck := widget.NewCheck("🔔 新上传时通知", func(checked bool) { config.NotifyOnStart = checked })
-	notifyStartCheck.Checked = config.NotifyOnStart
-	
-	notifyCompleteCheck := widget.NewCheck("🔔 完成时通知", func(checked bool) { config.NotifyOnComplete = checked })
-	notifyCompleteCheck.Checked = config.NotifyOnComplete
 
 	timeoutEntry := widget.NewEntry()
-	timeoutEntry.SetPlaceHolder("30")
-	if config.CompletionTimeout > 0 {
-		timeoutEntry.SetText(fmt.Sprintf("%d", config.CompletionTimeout))
-	}
+	timeoutEntry.SetText(fmt.Sprintf("%d", config.CompletionTimeout))
+	timeoutRow := container.NewHBox(
+		widget.NewLabel("⏱️ 完成判定"),
+		timeoutEntry,
+		widget.NewLabel("秒"),
+	)
+
+	// Notification section
+	soundCheck := widget.NewCheck("🔊 声音提醒", func(checked bool) {
+		config.SoundEnabled = checked
+	})
+	soundCheck.Checked = config.SoundEnabled
+
+	sysNotifyCheck := widget.NewCheck("💬 系统通知", func(checked bool) {
+		config.NotifyOnStart = checked
+		config.NotifyOnComplete = checked
+	})
+	sysNotifyCheck.Checked = config.NotifyOnStart
+
+	startNotifyCheck := widget.NewCheck("📤 上传开始提醒", func(checked bool) {
+		config.NotifyOnStart = checked
+	})
+	startNotifyCheck.Checked = config.NotifyOnStart
+
+	completeNotifyCheck := widget.NewCheck("✅ 上传完成提醒", func(checked bool) {
+		config.NotifyOnComplete = checked
+	})
+	completeNotifyCheck.Checked = config.NotifyOnComplete
+
+	// Other section
+	historyCheck := widget.NewCheck("📝 保存历史记录", func(checked bool) {
+		config.SaveHistory = checked
+	})
+	historyCheck.Checked = config.SaveHistory
 
 	saveBtn := widget.NewButton("💾 保存设置", func() {
-		config.CustomExts = customEntry.Text
 		if t := timeoutEntry.Text; t != "" {
 			var timeout int
 			if _, err := fmt.Sscanf(t, "%d", &timeout); err == nil && timeout >= 10 {
@@ -409,31 +392,210 @@ func main() {
 		saveConfig()
 		dialog.ShowInformation("成功", "设置已保存", w)
 	})
+	saveBtn.Importance = widget.HighImportance
 
-	settingsTab := container.NewVBox(
-		widget.NewLabel("📁 监控的文件类型"),
-		videoCheck, imageCheck, audioCheck, docCheck, archiveCheck,
+	settingsContent := container.NewVBox(
+		widget.NewLabelWithStyle("📁 文件监控", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewSeparator(),
-		widget.NewLabel("✏️ 自定义后缀"),
-		customEntry,
+		fileTypeBtn,
+		subdirCheck,
+		timeoutRow,
 		widget.NewSeparator(),
-		widget.NewLabel("⚙️ 其他设置"),
-		subdirCheck, notifyStartCheck, notifyCompleteCheck,
+		widget.NewLabelWithStyle("🔔 通知设置", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewSeparator(),
-		widget.NewLabel("⏱️ 完成超时(秒)"),
-		timeoutEntry,
+		soundCheck,
+		sysNotifyCheck,
+		startNotifyCheck,
+		completeNotifyCheck,
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("⚙️ 其他", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewSeparator(),
+		historyCheck,
 		widget.NewSeparator(),
 		saveBtn,
 	)
 
-	// Tabs
+	// ========== ABOUT TAB ==========
+	aboutTitle := canvas.NewText("FidruaWatch", colorPurple)
+	aboutTitle.TextSize = 28
+	aboutTitle.TextStyle = fyne.TextStyle{Bold: true}
+	aboutTitle.Alignment = fyne.TextAlignCenter
+
+	versionLabel := canvas.NewText("v2.0.0", colorCyan)
+	versionLabel.TextSize = 16
+	versionLabel.Alignment = fyne.TextAlignCenter
+
+	githubBtn := widget.NewButton("💻 GitHub 仓库", func() {
+		u, _ := url.Parse("https://github.com/donma033x/FidruaWatch")
+		_ = a.OpenURL(u)
+	})
+	githubBtn.Importance = widget.MediumImportance
+
+	downloadBtn := widget.NewButton("📥 下载最新版本", func() {
+		u, _ := url.Parse("https://github.com/donma033x/FidruaWatch/releases")
+		_ = a.OpenURL(u)
+	})
+	downloadBtn.Importance = widget.MediumImportance
+
+	feedbackBtn := widget.NewButton("📧 反馈问题", func() {
+		u, _ := url.Parse("https://github.com/donma033x/FidruaWatch/issues")
+		_ = a.OpenURL(u)
+	})
+	feedbackBtn.Importance = widget.MediumImportance
+
+	copyrightLabel := widget.NewLabel("© 2024 Fidrua · donma033x")
+	copyrightLabel.Alignment = fyne.TextAlignCenter
+
+	licenseLabel := widget.NewLabel("Made with 💜 · MIT License")
+	licenseLabel.Alignment = fyne.TextAlignCenter
+
+	aboutContent := container.NewVBox(
+		layout.NewSpacer(),
+		container.NewCenter(aboutTitle),
+		container.NewCenter(versionLabel),
+		layout.NewSpacer(),
+		githubBtn,
+		downloadBtn,
+		feedbackBtn,
+		layout.NewSpacer(),
+		container.NewCenter(copyrightLabel),
+		container.NewCenter(licenseLabel),
+		layout.NewSpacer(),
+	)
+
+	// ========== TABS ==========
 	tabs := container.NewAppTabs(
-		container.NewTabItem("📡 监控", container.NewPadded(monitorTab)),
-		container.NewTabItem("⚙️ 设置", container.NewPadded(settingsTab)),
+		container.NewTabItem("📡 监控", container.NewPadded(monitorContent)),
+		container.NewTabItem("⚙️ 设置", container.NewPadded(settingsContent)),
+		container.NewTabItem("ℹ️ 关于", container.NewPadded(aboutContent)),
 	)
 
 	w.SetContent(tabs)
 	w.ShowAndRun()
+}
+
+// Tappable container for the play button
+type tappableContainer struct {
+	widget.BaseWidget
+	content  fyne.CanvasObject
+	onTapped func()
+}
+
+func newTappableContainer(content fyne.CanvasObject, onTapped func()) *tappableContainer {
+	t := &tappableContainer{content: content, onTapped: onTapped}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (t *tappableContainer) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(t.content)
+}
+
+func (t *tappableContainer) Tapped(*fyne.PointEvent) {
+	if t.onTapped != nil {
+		t.onTapped()
+	}
+}
+
+func (t *tappableContainer) TappedSecondary(*fyne.PointEvent) {}
+
+func (t *tappableContainer) MinSize() fyne.Size {
+	return fyne.NewSize(120, 120)
+}
+
+// Create batch card
+func createBatchCard(b *Batch, updateUI func()) fyne.CanvasObject {
+	var statusColor color.Color
+	var statusLabel string
+	switch b.Status {
+	case "uploading":
+		statusColor = colorCyan
+		statusLabel = "上传中"
+	case "completed":
+		statusColor = colorGreen
+		statusLabel = "已完成"
+	case "signed":
+		statusColor = colorGray
+		statusLabel = "已签收"
+	}
+
+	colorBar := canvas.NewRectangle(statusColor)
+	colorBar.SetMinSize(fyne.NewSize(4, 0))
+
+	folderName := filepath.Base(b.Folder)
+	titleLabel := widget.NewLabelWithStyle(
+		fmt.Sprintf("📁 %s（%d个文件）", folderName, len(b.Files)),
+		fyne.TextAlignLeading,
+		fyne.TextStyle{Bold: true},
+	)
+
+	timeLabel := widget.NewLabel(fmt.Sprintf("🕐 %s %s", b.StartTime.Format("15:04:05"), statusLabel))
+
+	content := container.NewVBox(titleLabel, timeLabel)
+
+	if b.Status == "completed" {
+		signBtn := widget.NewButton("✅ 签收此批次", func() {
+			batchesMu.Lock()
+			b.Status = "signed"
+			batchesMu.Unlock()
+			updateUI()
+		})
+		signBtn.Importance = widget.SuccessImportance
+		content.Add(signBtn)
+	}
+
+	card := container.NewHBox(colorBar, container.NewPadded(content))
+	return container.NewPadded(card)
+}
+
+// Show file type selection dialog
+func showFileTypeDialog(w fyne.Window) {
+	videoCheck := widget.NewCheck("🎬 视频 (.mp4, .avi, .mkv...)", func(checked bool) {
+		config.VideoEnabled = checked
+	})
+	videoCheck.Checked = config.VideoEnabled
+
+	imageCheck := widget.NewCheck("🖼️ 图片 (.jpg, .png, .gif...)", func(checked bool) {
+		config.ImageEnabled = checked
+	})
+	imageCheck.Checked = config.ImageEnabled
+
+	audioCheck := widget.NewCheck("🎵 音频 (.mp3, .wav, .flac...)", func(checked bool) {
+		config.AudioEnabled = checked
+	})
+	audioCheck.Checked = config.AudioEnabled
+
+	docCheck := widget.NewCheck("📄 文档 (.pdf, .doc, .xls...)", func(checked bool) {
+		config.DocEnabled = checked
+	})
+	docCheck.Checked = config.DocEnabled
+
+	archiveCheck := widget.NewCheck("📦 压缩包 (.zip, .rar, .7z...)", func(checked bool) {
+		config.ArchiveEnabled = checked
+	})
+	archiveCheck.Checked = config.ArchiveEnabled
+
+	customEntry := widget.NewEntry()
+	customEntry.SetPlaceHolder("自定义后缀，如: .psd, .ai")
+	customEntry.SetText(config.CustomExts)
+
+	content := container.NewVBox(
+		widget.NewLabel("选择要监控的文件类型："),
+		videoCheck,
+		imageCheck,
+		audioCheck,
+		docCheck,
+		archiveCheck,
+		widget.NewSeparator(),
+		widget.NewLabel("自定义后缀（逗号分隔）："),
+		customEntry,
+	)
+
+	dialog.ShowCustomConfirm("文件类型设置", "确定", "取消", content, func(ok bool) {
+		if ok {
+			config.CustomExts = customEntry.Text
+		}
+	}, w)
 }
 
 func startMonitor(path string) error {
@@ -504,7 +666,7 @@ func handleFileEvents(ctx context.Context, updateUI func(), app fyne.App) {
 					if isNewBatch && config.NotifyOnStart {
 						app.SendNotification(&fyne.Notification{
 							Title:   "FidruaWatch - 新上传",
-							Content: fmt.Sprintf("检测到新文件上传: %s", filepath.Base(event.Name)),
+							Content: fmt.Sprintf("检测到新文件: %s", filepath.Base(event.Name)),
 						})
 					}
 					updateUI()
@@ -539,19 +701,6 @@ func isTempFile(path string) bool {
 		}
 	}
 	return false
-}
-
-func formatSize(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func addFileToBatch(filePath string) (isNewBatch bool) {
