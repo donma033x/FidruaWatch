@@ -24,6 +24,45 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// Custom dark theme with blue tint
+type customTheme struct{}
+
+func (t *customTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	switch name {
+	case theme.ColorNameBackground:
+		return color.NRGBA{R: 20, G: 22, B: 35, A: 255} // Dark blue background
+	case theme.ColorNameButton:
+		return color.NRGBA{R: 45, G: 50, B: 80, A: 255}
+	case theme.ColorNameDisabledButton:
+		return color.NRGBA{R: 35, G: 40, B: 60, A: 255}
+	case theme.ColorNameInputBackground:
+		return color.NRGBA{R: 30, G: 35, B: 55, A: 255}
+	case theme.ColorNameOverlayBackground:
+		return color.NRGBA{R: 25, G: 28, B: 45, A: 255}
+	case theme.ColorNameMenuBackground:
+		return color.NRGBA{R: 30, G: 35, B: 55, A: 255}
+	case theme.ColorNameSeparator:
+		return color.NRGBA{R: 60, G: 65, B: 90, A: 255}
+	case theme.ColorNamePrimary:
+		return color.NRGBA{R: 138, G: 43, B: 226, A: 255} // Purple
+	case theme.ColorNameForeground:
+		return color.NRGBA{R: 220, G: 220, B: 230, A: 255}
+	}
+	return theme.DarkTheme().Color(name, variant)
+}
+
+func (t *customTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return theme.DarkTheme().Font(style)
+}
+
+func (t *customTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DarkTheme().Icon(name)
+}
+
+func (t *customTheme) Size(name fyne.ThemeSizeName) float32 {
+	return theme.DarkTheme().Size(name)
+}
+
 // Batch represents an upload batch
 type Batch struct {
 	ID        string
@@ -31,7 +70,7 @@ type Batch struct {
 	Files     []string
 	FileSizes map[string]int64
 	TotalSize int64
-	Status    string // "uploading", "completed", "signed"
+	Status    string
 	StartTime time.Time
 	LastTime  time.Time
 }
@@ -52,10 +91,7 @@ type Config struct {
 	SaveHistory       bool   `json:"save_history"`
 }
 
-var tempFilePatterns = []string{
-	".tmp", ".temp", ".part", ".partial", ".crdownload",
-	"~$", ".swp", ".lock",
-}
+var tempFilePatterns = []string{".tmp", ".temp", ".part", ".partial", ".crdownload", "~$", ".swp", ".lock"}
 
 var (
 	monitorPath   string
@@ -75,11 +111,10 @@ var (
 	docExts     = []string{".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md", ".csv"}
 	archiveExts = []string{".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"}
 
-	// Colors
 	colorPurple = color.NRGBA{R: 138, G: 43, B: 226, A: 255}
-	colorCyan   = color.NRGBA{R: 0, G: 255, B: 255, A: 255}
-	colorGreen  = color.NRGBA{R: 0, G: 255, B: 136, A: 255}
-	colorGray   = color.NRGBA{R: 128, G: 128, B: 128, A: 255}
+	colorCyan   = color.NRGBA{R: 0, G: 220, B: 255, A: 255}
+	colorGreen  = color.NRGBA{R: 0, G: 230, B: 118, A: 255}
+	colorGray   = color.NRGBA{R: 100, G: 100, B: 120, A: 255}
 )
 
 func init() {
@@ -148,48 +183,53 @@ func getEnabledExts() []string {
 	return exts
 }
 
+func formatSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
 func main() {
 	a := app.NewWithID("com.fidrua.watch")
-	a.Settings().SetTheme(theme.DarkTheme())
+	a.Settings().SetTheme(&customTheme{})
 	w := a.NewWindow("FidruaWatch")
 	w.Resize(fyne.NewSize(420, 700))
 	w.CenterOnScreen()
 
 	// ========== MONITOR TAB ==========
 	title := canvas.NewText("FidruaWatch", colorPurple)
-	title.TextSize = 32
+	title.TextSize = 28
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	title.Alignment = fyne.TextAlignCenter
 
 	statusText := widget.NewLabel("点击开始监控")
 	statusText.Alignment = fyne.TextAlignCenter
 
-	// Large play button
-	playBtnText := canvas.NewText("▶", color.White)
-	playBtnText.TextSize = 48
-	playBtnText.Alignment = fyne.TextAlignCenter
-
-	playBtnBg := canvas.NewCircle(colorPurple)
-	playBtnBg.StrokeColor = color.NRGBA{R: 100, G: 100, B: 180, A: 255}
-	playBtnBg.StrokeWidth = 3
-
-	playBtnContainer := container.NewStack(playBtnBg, container.NewCenter(playBtnText))
-	playBtnContainer.Resize(fyne.NewSize(100, 100))
+	// Play button - simple large button
+	var playBtn *widget.Button
+	playBtn = widget.NewButton("  ▶  ", nil)
+	playBtn.Importance = widget.HighImportance
 
 	// Folder selection
 	folderLabel := widget.NewLabel("未选择文件夹")
 	folderLabel.Alignment = fyne.TextAlignCenter
-	folderLabel.Truncation = fyne.TextTruncateEllipsis
 
-	folderBtn := widget.NewButton("📁 选择监控文件夹", nil)
+	var folderBtn *widget.Button
+	folderBtn = widget.NewButton("📁 选择监控文件夹", nil)
 	folderBtn.Importance = widget.HighImportance
 
 	// Batch list
 	batchList := container.NewVBox()
 	batchScroll := container.NewVScroll(batchList)
-	batchScroll.SetMinSize(fyne.NewSize(380, 220))
+	batchScroll.SetMinSize(fyne.NewSize(390, 250))
 
-	// UI update channel
 	uiUpdateChan := make(chan struct{}, 1)
 
 	var updateBatchList func()
@@ -210,10 +250,8 @@ func main() {
 			sort.Slice(sortedBatches, func(i, j int) bool {
 				return sortedBatches[i].StartTime.After(sortedBatches[j].StartTime)
 			})
-
 			for _, batch := range sortedBatches {
-				b := batch
-				card := createBatchCard(b, updateBatchList)
+				card := createBatchCard(batch, updateBatchList)
 				batchList.Add(card)
 			}
 		}
@@ -234,21 +272,23 @@ func main() {
 		}
 	}()
 
-	// Folder button action
 	folderBtn.OnTapped = func() {
 		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err != nil || uri == nil {
 				return
 			}
 			monitorPath = uri.Path()
-			folderLabel.SetText(monitorPath)
+			// 显示路径，如果太长则截断
+			displayPath := monitorPath
+			if len(displayPath) > 40 {
+				displayPath = "..." + displayPath[len(displayPath)-37:]
+			}
+			folderLabel.SetText(displayPath)
 		}, w)
 	}
 
-	// Play button click handler - using a tappable container
-	playTappable := newTappableContainer(playBtnContainer, func() {
+	playBtn.OnTapped = func() {
 		if !isMonitoring {
-			// Start monitoring
 			if monitorPath == "" {
 				dialog.ShowInformation("提示", "请先选择监控文件夹", w)
 				return
@@ -266,32 +306,28 @@ func main() {
 			}
 
 			isMonitoring = true
-			playBtnText.Text = "⏹"
-			playBtnText.Refresh()
-			playBtnBg.FillColor = colorGreen
-			playBtnBg.Refresh()
+			playBtn.SetText("  ⏹  ")
+			playBtn.Importance = widget.DangerImportance
+			playBtn.Refresh()
 			statusText.SetText("正在监控: " + filepath.Base(monitorPath))
 			folderBtn.Disable()
 
 			go handleFileEvents(monitorCtx, requestUIUpdate, a)
 			go checkCompletions(monitorCtx, requestUIUpdate, a)
 		} else {
-			// Stop monitoring
 			if monitorCancel != nil {
 				monitorCancel()
 			}
 			stopMonitor()
 			isMonitoring = false
-			playBtnText.Text = "▶"
-			playBtnText.Refresh()
-			playBtnBg.FillColor = colorPurple
-			playBtnBg.Refresh()
+			playBtn.SetText("  ▶  ")
+			playBtn.Importance = widget.HighImportance
+			playBtn.Refresh()
 			statusText.SetText("点击开始监控")
 			folderBtn.Enable()
 		}
-	})
+	}
 
-	// Sign all & clear buttons
 	signAllBtn := widget.NewButton("✅ 全部签收", func() {
 		batchesMu.Lock()
 		for _, b := range batches {
@@ -323,8 +359,7 @@ func main() {
 
 	monitorContent := container.NewVBox(
 		container.NewCenter(title),
-		widget.NewSeparator(),
-		container.NewPadded(container.NewCenter(playTappable)),
+		container.NewCenter(playBtn),
 		container.NewCenter(statusText),
 		widget.NewSeparator(),
 		folderBtn,
@@ -335,11 +370,9 @@ func main() {
 	)
 
 	// ========== SETTINGS TAB ==========
-	// File monitoring section
 	fileTypeBtn := widget.NewButton("⚙️ 设置监控的文件类型", func() {
 		showFileTypeDialog(w)
 	})
-	fileTypeBtn.Importance = widget.MediumImportance
 
 	subdirCheck := widget.NewCheck("📁 监控子文件夹", func(checked bool) {
 		config.MonitorSubdirs = checked
@@ -348,23 +381,18 @@ func main() {
 
 	timeoutEntry := widget.NewEntry()
 	timeoutEntry.SetText(fmt.Sprintf("%d", config.CompletionTimeout))
+	timeoutEntry.Resize(fyne.NewSize(60, timeoutEntry.MinSize().Height))
+
 	timeoutRow := container.NewHBox(
 		widget.NewLabel("⏱️ 完成判定"),
 		timeoutEntry,
 		widget.NewLabel("秒"),
 	)
 
-	// Notification section
 	soundCheck := widget.NewCheck("🔊 声音提醒", func(checked bool) {
 		config.SoundEnabled = checked
 	})
 	soundCheck.Checked = config.SoundEnabled
-
-	sysNotifyCheck := widget.NewCheck("💬 系统通知", func(checked bool) {
-		config.NotifyOnStart = checked
-		config.NotifyOnComplete = checked
-	})
-	sysNotifyCheck.Checked = config.NotifyOnStart
 
 	startNotifyCheck := widget.NewCheck("📤 上传开始提醒", func(checked bool) {
 		config.NotifyOnStart = checked
@@ -376,7 +404,6 @@ func main() {
 	})
 	completeNotifyCheck.Checked = config.NotifyOnComplete
 
-	// Other section
 	historyCheck := widget.NewCheck("📝 保存历史记录", func(checked bool) {
 		config.SaveHistory = checked
 	})
@@ -396,52 +423,64 @@ func main() {
 
 	settingsContent := container.NewVBox(
 		widget.NewLabelWithStyle("📁 文件监控", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewSeparator(),
 		fileTypeBtn,
 		subdirCheck,
 		timeoutRow,
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("🔔 通知设置", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewSeparator(),
 		soundCheck,
-		sysNotifyCheck,
 		startNotifyCheck,
 		completeNotifyCheck,
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("⚙️ 其他", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewSeparator(),
 		historyCheck,
 		widget.NewSeparator(),
 		saveBtn,
 	)
 
 	// ========== ABOUT TAB ==========
+	// Use bundled logo
+	var logoImage fyne.CanvasObject
+	if resourceLogoPng != nil {
+		logoRes := resourceLogoPng
+		if logoRes != nil {
+			img := canvas.NewImageFromResource(logoRes)
+			img.SetMinSize(fyne.NewSize(120, 120))
+			img.FillMode = canvas.ImageFillContain
+			logoImage = img
+		}
+	}
+	if logoImage == nil {
+		// Fallback text logo
+		logoText := canvas.NewText("🐕", colorPurple)
+		logoText.TextSize = 60
+		logoText.Alignment = fyne.TextAlignCenter
+		logoImage = container.NewCenter(logoText)
+	}
+
 	aboutTitle := canvas.NewText("FidruaWatch", colorPurple)
-	aboutTitle.TextSize = 28
+	aboutTitle.TextSize = 26
 	aboutTitle.TextStyle = fyne.TextStyle{Bold: true}
 	aboutTitle.Alignment = fyne.TextAlignCenter
 
 	versionLabel := canvas.NewText("v2.0.0", colorCyan)
-	versionLabel.TextSize = 16
+	versionLabel.TextSize = 14
 	versionLabel.Alignment = fyne.TextAlignCenter
 
 	githubBtn := widget.NewButton("💻 GitHub 仓库", func() {
 		u, _ := url.Parse("https://github.com/donma033x/FidruaWatch")
 		_ = a.OpenURL(u)
 	})
-	githubBtn.Importance = widget.MediumImportance
 
 	downloadBtn := widget.NewButton("📥 下载最新版本", func() {
 		u, _ := url.Parse("https://github.com/donma033x/FidruaWatch/releases")
 		_ = a.OpenURL(u)
 	})
-	downloadBtn.Importance = widget.MediumImportance
 
 	feedbackBtn := widget.NewButton("📧 反馈问题", func() {
 		u, _ := url.Parse("https://github.com/donma033x/FidruaWatch/issues")
 		_ = a.OpenURL(u)
 	})
-	feedbackBtn.Importance = widget.MediumImportance
 
 	copyrightLabel := widget.NewLabel("© 2024 Fidrua · donma033x")
 	copyrightLabel.Alignment = fyne.TextAlignCenter
@@ -451,6 +490,7 @@ func main() {
 
 	aboutContent := container.NewVBox(
 		layout.NewSpacer(),
+		container.NewCenter(logoImage),
 		container.NewCenter(aboutTitle),
 		container.NewCenter(versionLabel),
 		layout.NewSpacer(),
@@ -460,50 +500,19 @@ func main() {
 		layout.NewSpacer(),
 		container.NewCenter(copyrightLabel),
 		container.NewCenter(licenseLabel),
-		layout.NewSpacer(),
 	)
 
 	// ========== TABS ==========
 	tabs := container.NewAppTabs(
 		container.NewTabItem("📡 监控", container.NewPadded(monitorContent)),
 		container.NewTabItem("⚙️ 设置", container.NewPadded(settingsContent)),
-		container.NewTabItem("ℹ️ 关于", container.NewPadded(aboutContent)),
+		container.NewTabItem("ℹ️", container.NewPadded(aboutContent)),
 	)
 
 	w.SetContent(tabs)
 	w.ShowAndRun()
 }
 
-// Tappable container for the play button
-type tappableContainer struct {
-	widget.BaseWidget
-	content  fyne.CanvasObject
-	onTapped func()
-}
-
-func newTappableContainer(content fyne.CanvasObject, onTapped func()) *tappableContainer {
-	t := &tappableContainer{content: content, onTapped: onTapped}
-	t.ExtendBaseWidget(t)
-	return t
-}
-
-func (t *tappableContainer) CreateRenderer() fyne.WidgetRenderer {
-	return widget.NewSimpleRenderer(t.content)
-}
-
-func (t *tappableContainer) Tapped(*fyne.PointEvent) {
-	if t.onTapped != nil {
-		t.onTapped()
-	}
-}
-
-func (t *tappableContainer) TappedSecondary(*fyne.PointEvent) {}
-
-func (t *tappableContainer) MinSize() fyne.Size {
-	return fyne.NewSize(120, 120)
-}
-
-// Create batch card
 func createBatchCard(b *Batch, updateUI func()) fyne.CanvasObject {
 	var statusColor color.Color
 	var statusLabel string
@@ -520,7 +529,7 @@ func createBatchCard(b *Batch, updateUI func()) fyne.CanvasObject {
 	}
 
 	colorBar := canvas.NewRectangle(statusColor)
-	colorBar.SetMinSize(fyne.NewSize(4, 0))
+	colorBar.SetMinSize(fyne.NewSize(5, 70))
 
 	folderName := filepath.Base(b.Folder)
 	titleLabel := widget.NewLabelWithStyle(
@@ -529,9 +538,10 @@ func createBatchCard(b *Batch, updateUI func()) fyne.CanvasObject {
 		fyne.TextStyle{Bold: true},
 	)
 
-	timeLabel := widget.NewLabel(fmt.Sprintf("🕐 %s %s", b.StartTime.Format("15:04:05"), statusLabel))
+	sizeStr := formatSize(b.TotalSize)
+	infoLabel := widget.NewLabel(fmt.Sprintf("🕐 %s · %s · %s", b.StartTime.Format("15:04:05"), sizeStr, statusLabel))
 
-	content := container.NewVBox(titleLabel, timeLabel)
+	content := container.NewVBox(titleLabel, infoLabel)
 
 	if b.Status == "completed" {
 		signBtn := widget.NewButton("✅ 签收此批次", func() {
@@ -544,11 +554,16 @@ func createBatchCard(b *Batch, updateUI func()) fyne.CanvasObject {
 		content.Add(signBtn)
 	}
 
-	card := container.NewHBox(colorBar, container.NewPadded(content))
+	// Card background
+	cardBg := canvas.NewRectangle(color.NRGBA{R: 35, G: 40, B: 60, A: 255})
+	cardBg.CornerRadius = 8
+
+	cardContent := container.NewHBox(colorBar, container.NewPadded(content))
+	card := container.NewStack(cardBg, cardContent)
+
 	return container.NewPadded(card)
 }
 
-// Show file type selection dialog
 func showFileTypeDialog(w fyne.Window) {
 	videoCheck := widget.NewCheck("🎬 视频 (.mp4, .avi, .mkv...)", func(checked bool) {
 		config.VideoEnabled = checked
@@ -581,11 +596,7 @@ func showFileTypeDialog(w fyne.Window) {
 
 	content := container.NewVBox(
 		widget.NewLabel("选择要监控的文件类型："),
-		videoCheck,
-		imageCheck,
-		audioCheck,
-		docCheck,
-		archiveCheck,
+		videoCheck, imageCheck, audioCheck, docCheck, archiveCheck,
 		widget.NewSeparator(),
 		widget.NewLabel("自定义后缀（逗号分隔）："),
 		customEntry,
