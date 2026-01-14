@@ -178,7 +178,8 @@ func main() {
 
 	folderPath := widget.NewLabel("未选择文件夹")
 	folderPath.Alignment = fyne.TextAlignCenter
-	folderPath.Wrapping = fyne.TextWrapWord
+	folderPath.Wrapping = fyne.TextWrapBreak
+	folderPath.Truncation = fyne.TextTruncateEllipsis
 
 	batchList := container.NewVBox()
 	batchScroll := container.NewVScroll(batchList)
