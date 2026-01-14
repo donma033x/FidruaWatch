@@ -1,12 +1,16 @@
 # FidruaWatch
 
 <p align="center">
+  <img src="logo.png" alt="FidruaWatch Logo" width="200">
+</p>
+
+<p align="center">
   <strong>专业的批量文件上传监控工具 | Professional Batch File Upload Monitor</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-00d9ff" alt="Platform">
-  <img src="https://img.shields.io/badge/version-2.0.0-00ff88" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.1.1-00ff88" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
 </p>
 
@@ -22,7 +26,8 @@
 - 📊 **大小统计** - 实时显示批次文件总大小
 - 🚫 **临时文件过滤** - 自动忽略 .tmp/.part 等临时文件
 - 🔄 **FTP友好** - 支持FTP上传的临时文件重命名场景
-- 🚀 **轻量级** - ~15MB，无 WebView 依赖
+- 🚀 **轻量级** - ~25MB，无 WebView 依赖
+- 🚀 **开机自启** - 支持开机自动启动
 
 ---
 
@@ -110,6 +115,22 @@ go build -o fidruawatch .
 
 ---
 
+## 📝 更新日志
+
+### v2.1.1 (2025-01-14)
+- ✨ **Tab栏平铺布局** - 三个标签平均分布
+- ✨ **开机自启动** - 支持 Windows/macOS/Linux
+- 👍 **弹窗优化** - 文件夹选择和设置对话框更大更舒适
+- 🐛 **修复** - 关于页面版本号显示
+
+### v2.0.0
+- 🎉 全新 UI 设计
+- 📁 智能归批功能
+- 🔔 系统通知支持
+- 🔄 FTP 上传场景优化
+
+---
+
 ## 📄 许可证
 
 MIT License
@@ -117,5 +138,5 @@ MIT License
 ---
 
 <p align="center">
-  Made with 💙 by Fidrua
+  Made with 💜 by Fidrua
 </p>
