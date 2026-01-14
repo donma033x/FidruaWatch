@@ -5,7 +5,11 @@
 </p>
 
 <p align="center">
-  <strong>专业的批量文件上传监控工具 | Professional Batch File Upload Monitor</strong>
+  <strong>Professional Batch File Upload Monitor</strong>
+</p>
+
+<p align="center">
+  <a href="README_CN.md">中文文档</a>
 </p>
 
 <p align="center">
@@ -16,27 +20,27 @@
 
 ---
 
-## ✨ 功能特性
+## ✨ Features
 
-- 🌐 **跨平台** - Windows / macOS / Linux
-- 📁 **智能归批** - 同目录文件自动归为一个批次
-- 🔔 **即时通知** - 新上传开始和完成时系统通知
-- ⏱️ **可配置超时** - 自定义无活动判定时间（默认30秒）
-- ✅ **批次签收** - 确认已处理的上传批次
-- 📊 **大小统计** - 实时显示批次文件总大小
-- 🚫 **临时文件过滤** - 自动忽略 .tmp/.part 等临时文件
-- 🔄 **FTP友好** - 支持FTP上传的临时文件重命名场景
-- 🚀 **轻量级** - ~25MB，无 WebView 依赖
-- 🚀 **开机自启** - 支持开机自动启动
+- 🌐 **Cross-platform** - Windows / macOS / Linux
+- 📁 **Smart Batching** - Files in same directory auto-grouped into batches
+- 🔔 **Instant Notifications** - System alerts on upload start/complete
+- ⏱️ **Configurable Timeout** - Custom inactivity threshold (default 30s)
+- ✅ **Batch Sign-off** - Confirm processed upload batches
+- 📊 **Size Statistics** - Real-time batch file size display
+- 🚫 **Temp File Filter** - Auto-ignore .tmp/.part files
+- 🔄 **FTP Friendly** - Supports FTP temp file rename scenarios
+- 🚀 **Lightweight** - ~25MB, no WebView dependency
+- 🚀 **Auto Start** - Launch on system startup
 
 ---
 
-## 📥 下载
+## 📥 Download
 
-前往 [Releases](https://github.com/donma033x/FidruaWatch/releases) 下载:
+Go to [Releases](https://github.com/donma033x/FidruaWatch/releases) to download:
 
-| 平台 | 文件 |
-|------|------|
+| Platform | File |
+|----------|------|
 | 🪟 Windows | `fidruawatch-windows-amd64.zip` |
 | 🍎 macOS (Intel) | `fidruawatch-darwin-amd64.tar.gz` |
 | 🍎 macOS (Apple Silicon) | `fidruawatch-darwin-arm64.tar.gz` |
@@ -44,62 +48,63 @@
 
 ---
 
-## 🚀 使用方法
+## 🚀 Usage
 
-1. **选择文件夹** - 选择要监控的上传目录（如FTP根目录）
-2. **开始监控** - 点击"开始监控"按钮
-3. **上传开始** - 检测到新文件时收到系统通知
-4. **上传完成** - 无新文件活动超过设定时间后自动标记完成
-5. **批次签收** - 点击签收确认已处理的批次
-
----
-
-## ⚙️ 设置选项
-
-### 文件类型
-
-| 类型 | 扩展名 |
-|------|--------|
-| 🎬 视频 | `.mp4` `.avi` `.mkv` `.mov` `.wmv` `.flv` `.webm` `.m4v` `.mpeg` `.mpg` `.3gp` `.ts` |
-| 🖼 图片 | `.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.svg` `.ico` `.tiff` `.psd` |
-| 🎵 音频 | `.mp3` `.wav` `.flac` `.aac` `.ogg` `.wma` `.m4a` `.opus` |
-| 📄 文档 | `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.txt` `.md` `.csv` |
-| 📦 压缩包 | `.zip` `.rar` `.7z` `.tar` `.gz` `.bz2` `.xz` |
-| ✏️ 自定义 | 在设置中添加任意扩展名 |
-
-### 其他设置
-
-- **监控子文件夹** - 是否递归监控子目录
-- **新上传时通知** - 检测到新批次时发送系统通知
-- **上传完成时通知** - 批次完成时发送系统通知
-- **完成超时(秒)** - 无新文件写入多久后判定上传完成（默认30秒，最小10秒）
+1. **Select Folder** - Choose the upload directory to monitor (e.g., FTP root)
+2. **Start Monitoring** - Click the "Start" button
+3. **Upload Starts** - Receive notification when new files detected
+4. **Upload Complete** - Auto-marked complete after inactivity timeout
+5. **Sign Off Batch** - Click to confirm processed batches
 
 ---
 
-## 🔧 FTP 监控场景
+## ⚙️ Settings
 
-本工具特别适合监控 FTP/SFTP 服务器的上传目录：
+### File Types
 
-- ✅ 自动过滤 FTP 客户端产生的临时文件
-- ✅ 支持上传完成后重命名的场景
-- ✅ 大文件长时间上传不会误判完成
-- ✅ 可配置超时适应不同网络环境
+| Type | Extensions |
+|------|------------|
+| 🎬 Video | `.mp4` `.avi` `.mkv` `.mov` `.wmv` `.flv` `.webm` `.m4v` `.mpeg` `.mpg` `.3gp` `.ts` |
+| 🖼 Image | `.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.svg` `.ico` `.tiff` `.psd` |
+| 🎵 Audio | `.mp3` `.wav` `.flac` `.aac` `.ogg` `.wma` `.m4a` `.opus` |
+| 📄 Document | `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.txt` `.md` `.csv` |
+| 📦 Archive | `.zip` `.rar` `.7z` `.tar` `.gz` `.bz2` `.xz` |
+| ✏️ Custom | Add any extension in settings |
 
-**注意**: 监控目录需要是本地挂载的路径，网络映射驱动器可能不支持实时文件监控。
+### Other Settings
+
+- **Monitor Subdirectories** - Recursively monitor subdirectories
+- **Notify on Start** - Send notification when new batch detected
+- **Notify on Complete** - Send notification when batch completes
+- **Completion Timeout** - Seconds of inactivity before marking complete (default 30s, min 10s)
+- **Auto Start** - Launch application on system startup
 
 ---
 
-## 🛠️ 从源码构建
+## 🔧 FTP Monitoring
 
-### 环境要求
+This tool is ideal for monitoring FTP/SFTP server upload directories:
+
+- ✅ Auto-filter FTP client temporary files
+- ✅ Support post-upload rename scenarios
+- ✅ Large file uploads won't trigger false completion
+- ✅ Configurable timeout for different network conditions
+
+**Note**: Monitor directory must be a locally mounted path. Network mapped drives may not support real-time file monitoring.
+
+---
+
+## 🛠️ Build from Source
+
+### Requirements
 
 - [Go](https://golang.org/) >= 1.21
-- GCC (CGO 需要)
+- GCC (for CGO)
   - Windows: MinGW-w64
   - macOS: Xcode Command Line Tools
   - Linux: `gcc`, `libgl1-mesa-dev`, `xorg-dev`
 
-### 构建命令
+### Build
 
 ```bash
 git clone https://github.com/donma033x/FidruaWatch.git
@@ -107,31 +112,31 @@ cd FidruaWatch
 go build -o fidruawatch .
 ```
 
-### 技术栈
+### Tech Stack
 
 - **GUI**: [Fyne](https://fyne.io/) v2
-- **文件监控**: fsnotify
-- **语言**: Go
+- **File Watching**: fsnotify
+- **Language**: Go
 
 ---
 
-## 📝 更新日志
+## 📝 Changelog
 
 ### v2.1.1 (2025-01-14)
-- ✨ **Tab栏平铺布局** - 三个标签平均分布
-- ✨ **开机自启动** - 支持 Windows/macOS/Linux
-- 👍 **弹窗优化** - 文件夹选择和设置对话框更大更舒适
-- 🐛 **修复** - 关于页面版本号显示
+- ✨ **Tab Bar Layout** - Three tabs evenly distributed
+- ✨ **Auto Start** - Support Windows/macOS/Linux startup
+- 👍 **Dialog Improvements** - Larger folder picker and settings dialogs
+- 🐛 **Fix** - About page version display
 
 ### v2.0.0
-- 🎉 全新 UI 设计
-- 📁 智能归批功能
-- 🔔 系统通知支持
-- 🔄 FTP 上传场景优化
+- 🎉 Brand new UI design
+- 📁 Smart batch grouping
+- 🔔 System notification support
+- 🔄 FTP upload scenario optimization
 
 ---
 
-## 📄 许可证
+## 📄 License
 
 MIT License
 
