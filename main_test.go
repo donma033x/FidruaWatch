@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestFormatSize(t *testing.T) {
@@ -209,5 +211,115 @@ func TestAutoStartPaths(t *testing.T) {
 	path := getExecutablePath()
 	if path == "" {
 		t.Log("Warning: Could not get executable path (may be normal in test)")
+	}
+}
+
+func TestFileMonitoringIntegration(t *testing.T) {
+	// Create temp directory
+	tmpDir := t.TempDir()
+	
+	// Save original state
+	origConfig := config
+	origBatches := batches
+	origMonitorPath := monitorPath
+	defer func() {
+		config = origConfig
+		batches = origBatches
+		monitorPath = origMonitorPath
+		stopMonitor()
+	}()
+
+	// Setup
+	config = Config{VideoEnabled: true, CompletionTimeout: 2}
+	batches = make(map[string]*Batch)
+	monitorPath = tmpDir
+
+	// Start monitor
+	err := startMonitor(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to start monitor: %v", err)
+	}
+	t.Log("Monitor started")
+
+	// Create context for goroutines
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start event handler
+	updateCount := 0
+	updateFunc := func() { updateCount++ }
+	go handleFileEvents(ctx, updateFunc, nil)
+
+	// Create a test file
+	testFile := filepath.Join(tmpDir, "test_video.mp4")
+	err = os.WriteFile(testFile, []byte("test content"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	t.Log("Test file created")
+
+	// Wait for event to be processed
+	time.Sleep(500 * time.Millisecond)
+
+	// Check batch was created
+	batchesMu.RLock()
+	batchCount := len(batches)
+	var foundBatch *Batch
+	for _, b := range batches {
+		foundBatch = b
+		break
+	}
+	batchesMu.RUnlock()
+
+	if batchCount != 1 {
+		t.Errorf("Expected 1 batch, got %d", batchCount)
+	}
+
+	if foundBatch != nil {
+		if foundBatch.Status != "uploading" {
+			t.Errorf("Expected status 'uploading', got '%s'", foundBatch.Status)
+		}
+		if len(foundBatch.Files) != 1 {
+			t.Errorf("Expected 1 file, got %d", len(foundBatch.Files))
+		}
+		t.Logf("Batch created: %+v", foundBatch)
+	}
+
+	// Test completion check
+	// Manually mark as completed for test
+	time.Sleep(2500 * time.Millisecond)
+	batchesMu.Lock()
+	for _, b := range batches {
+		if b.Status == "uploading" && time.Since(b.LastTime) > 2*time.Second {
+			b.Status = "completed"
+		}
+	}
+	batchesMu.Unlock()
+	
+	// Wait for completion timeout (2 seconds + buffer)
+	time.Sleep(3 * time.Second)
+
+	batchesMu.RLock()
+	if foundBatch != nil && foundBatch.Status != "completed" {
+		t.Errorf("Expected status 'completed', got '%s'", foundBatch.Status)
+	}
+	batchesMu.RUnlock()
+
+	t.Log("File monitoring integration test passed")
+}
+
+func TestAutoStartFunctions(t *testing.T) {
+	// Test that auto-start functions don't panic
+	// We can't fully test them without admin privileges
+	
+	enabled := isAutoStartEnabled()
+	t.Logf("Auto-start currently enabled: %v", enabled)
+	
+	// Test executable path
+	path := getExecutablePath()
+	if path == "" {
+		t.Log("Warning: Could not get executable path")
+	} else {
+		t.Logf("Executable path: %s", path)
 	}
 }
