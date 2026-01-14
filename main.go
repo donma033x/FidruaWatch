@@ -7,7 +7,9 @@ import (
 	"image/color"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -89,6 +91,7 @@ type Config struct {
 	NotifyOnComplete  bool   `json:"notify_on_complete"`
 	SoundEnabled      bool   `json:"sound_enabled"`
 	SaveHistory       bool   `json:"save_history"`
+	AutoStart         bool   `json:"auto_start"`
 }
 
 var tempFilePatterns = []string{".tmp", ".temp", ".part", ".partial", ".crdownload", "~$", ".swp", ".lock"}
@@ -131,6 +134,7 @@ func init() {
 		NotifyOnComplete:  true,
 		SoundEnabled:      true,
 		SaveHistory:       true,
+		AutoStart:         false,
 	}
 	configDir, _ := os.UserConfigDir()
 	configPath = filepath.Join(configDir, "fidruawatch", "config.json")
@@ -149,6 +153,139 @@ func saveConfig() {
 	os.MkdirAll(filepath.Dir(configPath), 0755)
 	data, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(configPath, data, 0644)
+}
+
+// getExecutablePath returns the path to the current executable
+func getExecutablePath() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return exePath
+}
+
+// setAutoStart enables or disables auto-start on boot
+func setAutoStart(enable bool) error {
+	exePath := getExecutablePath()
+	if exePath == "" {
+		return fmt.Errorf("无法获取程序路径")
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		return setAutoStartWindows(exePath, enable)
+	case "darwin":
+		return setAutoStartMacOS(exePath, enable)
+	case "linux":
+		return setAutoStartLinux(exePath, enable)
+	default:
+		return fmt.Errorf("不支持的操作系统")
+	}
+}
+
+func setAutoStartWindows(exePath string, enable bool) error {
+	// Use reg command to add/remove from Run key
+	if enable {
+		cmd := exec.Command("reg", "add",
+			`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
+			"/v", "FidruaWatch",
+			"/t", "REG_SZ",
+			"/d", exePath,
+			"/f")
+		return cmd.Run()
+	} else {
+		cmd := exec.Command("reg", "delete",
+			`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
+			"/v", "FidruaWatch",
+			"/f")
+		cmd.Run() // Ignore error if key doesn't exist
+		return nil
+	}
+}
+
+func setAutoStartMacOS(exePath string, enable bool) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	plistPath := filepath.Join(homeDir, "Library", "LaunchAgents", "com.fidrua.watch.plist")
+
+	if enable {
+		os.MkdirAll(filepath.Dir(plistPath), 0755)
+		plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.fidrua.watch</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>%s</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>`, exePath)
+		return os.WriteFile(plistPath, []byte(plistContent), 0644)
+	} else {
+		os.Remove(plistPath)
+		return nil
+	}
+}
+
+func setAutoStartLinux(exePath string, enable bool) error {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	autostartDir := filepath.Join(configDir, "autostart")
+	desktopPath := filepath.Join(autostartDir, "fidruawatch.desktop")
+
+	if enable {
+		os.MkdirAll(autostartDir, 0755)
+		desktopContent := fmt.Sprintf(`[Desktop Entry]
+Type=Application
+Name=FidruaWatch
+Exec=%s
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Comment=File upload monitor
+`, exePath)
+		return os.WriteFile(desktopPath, []byte(desktopContent), 0644)
+	} else {
+		os.Remove(desktopPath)
+		return nil
+	}
+}
+
+// isAutoStartEnabled checks if auto-start is currently enabled
+func isAutoStartEnabled() bool {
+	switch runtime.GOOS {
+	case "windows":
+		cmd := exec.Command("reg", "query",
+			`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
+			"/v", "FidruaWatch")
+		return cmd.Run() == nil
+	case "darwin":
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return false
+		}
+		plistPath := filepath.Join(homeDir, "Library", "LaunchAgents", "com.fidrua.watch.plist")
+		_, err = os.Stat(plistPath)
+		return err == nil
+	case "linux":
+		configDir, err := os.UserConfigDir()
+		if err != nil {
+			return false
+		}
+		desktopPath := filepath.Join(configDir, "autostart", "fidruawatch.desktop")
+		_, err = os.Stat(desktopPath)
+		return err == nil
+	default:
+		return false
+	}
 }
 
 func getEnabledExts() []string {
@@ -273,7 +410,7 @@ func main() {
 	}()
 
 	folderBtn.OnTapped = func() {
-		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+		d := dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err != nil || uri == nil {
 				return
 			}
@@ -285,6 +422,8 @@ func main() {
 			}
 			folderLabel.SetText(displayPath)
 		}, w)
+		d.Resize(fyne.NewSize(600, 450))
+		d.Show()
 	}
 
 	playBtn.OnTapped = func() {
@@ -416,10 +555,23 @@ func main() {
 				config.CompletionTimeout = timeout
 			}
 		}
+		// Handle auto-start
+		if err := setAutoStart(config.AutoStart); err != nil {
+			dialog.ShowError(fmt.Errorf("设置开机启动失败: %v", err), w)
+			return
+		}
 		saveConfig()
 		dialog.ShowInformation("成功", "设置已保存", w)
 	})
 	saveBtn.Importance = widget.HighImportance
+
+	// Auto-start checkbox
+	autoStartCheck := widget.NewCheck("🚀 开机自动启动", func(checked bool) {
+		config.AutoStart = checked
+	})
+	// Check actual system state
+	autoStartCheck.Checked = isAutoStartEnabled()
+	config.AutoStart = autoStartCheck.Checked
 
 	settingsContent := container.NewVBox(
 		widget.NewLabelWithStyle("📁 文件监控", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -434,6 +586,7 @@ func main() {
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("⚙️ 其他", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		historyCheck,
+		autoStartCheck,
 		widget.NewSeparator(),
 		saveBtn,
 	)
@@ -502,14 +655,71 @@ func main() {
 		container.NewCenter(licenseLabel),
 	)
 
-	// ========== TABS ==========
-	tabs := container.NewAppTabs(
-		container.NewTabItem("📡 监控", container.NewPadded(monitorContent)),
-		container.NewTabItem("⚙️ 设置", container.NewPadded(settingsContent)),
-		container.NewTabItem("ℹ️", container.NewPadded(aboutContent)),
+	// ========== CUSTOM TAB BAR ==========
+	// Create content containers
+	monitorPage := container.NewPadded(monitorContent)
+	settingsPage := container.NewPadded(settingsContent)
+	aboutPage := container.NewPadded(aboutContent)
+
+	// Container to hold current page
+	pageContainer := container.NewStack(monitorPage)
+
+	// Tab button style helper
+	var tabMonitor, tabSettings, tabAbout *widget.Button
+	var currentTab int = 0
+
+	updateTabStyle := func() {
+		// Reset all buttons
+		tabMonitor.Importance = widget.MediumImportance
+		tabSettings.Importance = widget.MediumImportance
+		tabAbout.Importance = widget.MediumImportance
+		// Highlight current
+		switch currentTab {
+		case 0:
+			tabMonitor.Importance = widget.HighImportance
+		case 1:
+			tabSettings.Importance = widget.HighImportance
+		case 2:
+			tabAbout.Importance = widget.HighImportance
+		}
+		tabMonitor.Refresh()
+		tabSettings.Refresh()
+		tabAbout.Refresh()
+	}
+
+	showPage := func(index int) {
+		currentTab = index
+		pageContainer.Objects = nil
+		switch index {
+		case 0:
+			pageContainer.Objects = []fyne.CanvasObject{monitorPage}
+		case 1:
+			pageContainer.Objects = []fyne.CanvasObject{settingsPage}
+		case 2:
+			pageContainer.Objects = []fyne.CanvasObject{aboutPage}
+		}
+		pageContainer.Refresh()
+		updateTabStyle()
+	}
+
+	tabMonitor = widget.NewButton("📡 监控", func() { showPage(0) })
+	tabSettings = widget.NewButton("⚙️ 设置", func() { showPage(1) })
+	tabAbout = widget.NewButton("ℹ️ 关于", func() { showPage(2) })
+
+	tabMonitor.Importance = widget.HighImportance
+
+	// Create tab bar with equal-width buttons using GridWithColumns
+	tabBar := container.New(layout.NewGridLayoutWithColumns(3),
+		tabMonitor, tabSettings, tabAbout,
 	)
 
-	w.SetContent(tabs)
+	// Add separator under tab bar
+	tabBarWithSep := container.NewVBox(tabBar, widget.NewSeparator())
+
+	// Main layout: tab bar at top, content below
+	mainContent := container.NewBorder(tabBarWithSep, nil, nil, nil, pageContainer)
+
+	w.SetContent(mainContent)
 	w.ShowAndRun()
 }
 
@@ -565,48 +775,61 @@ func createBatchCard(b *Batch, updateUI func()) fyne.CanvasObject {
 }
 
 func showFileTypeDialog(w fyne.Window) {
-	videoCheck := widget.NewCheck("🎬 视频 (.mp4, .avi, .mkv...)", func(checked bool) {
+	videoCheck := widget.NewCheck("🎬 视频 (.mp4, .avi, .mkv, .mov, .wmv, .flv...)", func(checked bool) {
 		config.VideoEnabled = checked
 	})
 	videoCheck.Checked = config.VideoEnabled
 
-	imageCheck := widget.NewCheck("🖼️ 图片 (.jpg, .png, .gif...)", func(checked bool) {
+	imageCheck := widget.NewCheck("🖼️ 图片 (.jpg, .png, .gif, .bmp, .webp, .svg...)", func(checked bool) {
 		config.ImageEnabled = checked
 	})
 	imageCheck.Checked = config.ImageEnabled
 
-	audioCheck := widget.NewCheck("🎵 音频 (.mp3, .wav, .flac...)", func(checked bool) {
+	audioCheck := widget.NewCheck("🎵 音频 (.mp3, .wav, .flac, .aac, .ogg...)", func(checked bool) {
 		config.AudioEnabled = checked
 	})
 	audioCheck.Checked = config.AudioEnabled
 
-	docCheck := widget.NewCheck("📄 文档 (.pdf, .doc, .xls...)", func(checked bool) {
+	docCheck := widget.NewCheck("📄 文档 (.pdf, .doc, .docx, .xls, .xlsx, .ppt...)", func(checked bool) {
 		config.DocEnabled = checked
 	})
 	docCheck.Checked = config.DocEnabled
 
-	archiveCheck := widget.NewCheck("📦 压缩包 (.zip, .rar, .7z...)", func(checked bool) {
+	archiveCheck := widget.NewCheck("📦 压缩包 (.zip, .rar, .7z, .tar, .gz...)", func(checked bool) {
 		config.ArchiveEnabled = checked
 	})
 	archiveCheck.Checked = config.ArchiveEnabled
 
 	customEntry := widget.NewEntry()
-	customEntry.SetPlaceHolder("自定义后缀，如: .psd, .ai")
+	customEntry.SetPlaceHolder("自定义后缀，如: .psd, .ai, .sketch")
 	customEntry.SetText(config.CustomExts)
 
+	// Create a spacer to make the dialog wider
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(350, 1))
+
 	content := container.NewVBox(
-		widget.NewLabel("选择要监控的文件类型："),
-		videoCheck, imageCheck, audioCheck, docCheck, archiveCheck,
+		spacer,
+		widget.NewLabelWithStyle("选择要监控的文件类型：", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewVBox(
+			videoCheck,
+			imageCheck,
+			audioCheck,
+			docCheck,
+			archiveCheck,
+		),
 		widget.NewSeparator(),
-		widget.NewLabel("自定义后缀（逗号分隔）："),
+		widget.NewLabelWithStyle("自定义后缀（逗号分隔）：", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		customEntry,
 	)
 
-	dialog.ShowCustomConfirm("文件类型设置", "确定", "取消", content, func(ok bool) {
+	d := dialog.NewCustomConfirm("文件类型设置", "确定", "取消", content, func(ok bool) {
 		if ok {
 			config.CustomExts = customEntry.Text
 		}
 	}, w)
+	d.Resize(fyne.NewSize(400, 350))
+	d.Show()
 }
 
 func startMonitor(path string) error {
