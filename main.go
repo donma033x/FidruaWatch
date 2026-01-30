@@ -1223,23 +1223,7 @@ func playSound(soundType SoundType) {
 		
 		switch runtime.GOOS {
 		case "windows":
-			if soundPath != "" {
-				// Play custom sound file using PowerShell without window
-				for i := 0; i < 3; i++ {
-					// Use mshta to run PowerShell hidden
-					ps := fmt.Sprintf(`powershell -WindowStyle Hidden -Command "(New-Object Media.SoundPlayer '%s').PlaySync()"`, soundPath)
-					cmd := exec.Command("mshta", fmt.Sprintf(`vbscript:Execute("CreateObject(""Wscript.Shell"").Run ""%s"", 0:close")`, ps))
-					cmd.Run()
-					time.Sleep(300 * time.Millisecond)
-				}
-			} else {
-				// Default: play system sound
-				for i := 0; i < 3; i++ {
-					cmd := exec.Command("mshta", `vbscript:Execute("CreateObject(""Wscript.Shell"").Run ""powershell -WindowStyle Hidden [System.Media.SystemSounds]::Hand.Play()"", 0:close")`)
-					cmd.Run()
-					time.Sleep(500 * time.Millisecond)
-				}
-			}
+			playSoundWindows(soundPath)
 		case "darwin":
 			if soundPath != "" {
 				for i := 0; i < 3; i++ {
@@ -1276,6 +1260,40 @@ func playSound(soundType SoundType) {
 			}
 		}
 	}()
+}
+
+// playSoundWindows plays sound on Windows
+func playSoundWindows(soundPath string) {
+	// Create a temporary VBS script to run PowerShell completely hidden
+	var psCommand string
+	if soundPath != "" {
+		psCommand = fmt.Sprintf(`(New-Object Media.SoundPlayer '%s').PlaySync()`, soundPath)
+	} else {
+		psCommand = `[System.Media.SystemSounds]::Exclamation.Play(); Start-Sleep -Milliseconds 500`
+	}
+	
+	vbsScript := fmt.Sprintf(`
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run "powershell -NoProfile -ExecutionPolicy Bypass -Command ""%s""", 0, True
+`, psCommand)
+	
+	// Write VBS to temp file
+	tmpFile, err := os.CreateTemp("", "playsound_*.vbs")
+	if err != nil {
+		return
+	}
+	vbsPath := tmpFile.Name()
+	tmpFile.WriteString(vbsScript)
+	tmpFile.Close()
+	
+	// Run the VBS script 3 times
+	for i := 0; i < 3; i++ {
+		exec.Command("wscript.exe", "//nologo", "//B", vbsPath).Run()
+		time.Sleep(500 * time.Millisecond)
+	}
+	
+	// Clean up
+	os.Remove(vbsPath)
 }
 
 func checkCompletions(ctx context.Context, updateUI func(), app fyne.App) {
