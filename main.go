@@ -349,11 +349,20 @@ func main() {
 	statusText := widget.NewLabel("点击开始监控")
 	statusText.Alignment = fyne.TextAlignCenter
 
-	// Play button - simple large button
-	// Play button with larger touch area
+	// Play button - large, prominent button with icon and text
 	var playBtn *widget.Button
-	playBtn = widget.NewButton("    ▶    ", nil)
+	playBtnLabel := "▶  开始监控"
+	playBtn = widget.NewButton(playBtnLabel, nil)
 	playBtn.Importance = widget.HighImportance
+	
+	// Make button larger by wrapping with min size
+	playBtnBg := canvas.NewRectangle(color.Transparent)
+	playBtnBg.SetMinSize(fyne.NewSize(200, 50))
+	
+	playBtnWrapper := container.NewStack(
+		playBtnBg,
+		playBtn,
+	)
 
 	// Folder selection
 	folderLabel := widget.NewLabel("未选择文件夹")
@@ -454,7 +463,7 @@ func main() {
 			}
 
 			isMonitoring = true
-			playBtn.SetText("    ⏹    ")
+			playBtn.SetText("⏹  停止监控")
 			playBtn.Importance = widget.DangerImportance
 			playBtn.Refresh()
 			statusText.SetText("正在监控: " + filepath.Base(monitorPath))
@@ -468,7 +477,7 @@ func main() {
 			}
 			stopMonitor()
 			isMonitoring = false
-			playBtn.SetText("    ▶    ")
+			playBtn.SetText("▶  开始监控")
 			playBtn.Importance = widget.HighImportance
 			playBtn.Refresh()
 			statusText.SetText("点击开始监控")
@@ -507,7 +516,7 @@ func main() {
 
 	monitorContent := container.NewVBox(
 		container.NewCenter(title),
-		container.NewCenter(playBtn),
+		container.NewCenter(playBtnWrapper),
 		container.NewCenter(statusText),
 		widget.NewSeparator(),
 		folderBtn,
@@ -625,7 +634,7 @@ func main() {
 	aboutTitle.TextStyle = fyne.TextStyle{Bold: true}
 	aboutTitle.Alignment = fyne.TextAlignCenter
 
-	versionLabel := canvas.NewText("v2.1.2", colorCyan)
+	versionLabel := canvas.NewText("v2.1.3", colorCyan)
 	versionLabel.TextSize = 14
 	versionLabel.Alignment = fyne.TextAlignCenter
 
@@ -1014,26 +1023,38 @@ func addFileToBatch(filePath string) (isNewBatch bool) {
 	return
 }
 
-// playSound plays a system beep/notification sound
+// playSound plays a notification sound repeatedly for better attention
 func playSound() {
 	if !config.SoundEnabled {
 		return
 	}
-	switch runtime.GOOS {
-	case "windows":
-		// Use PowerShell to play system sound
-		exec.Command("powershell", "-c", "[System.Media.SystemSounds]::Asterisk.Play()").Start()
-	case "darwin":
-		// macOS system sound
-		exec.Command("afplay", "/System/Library/Sounds/Glass.aiff").Start()
-	case "linux":
-		// Try paplay first, then aplay, then beep
-		if err := exec.Command("paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga").Start(); err != nil {
-			if err := exec.Command("aplay", "/usr/share/sounds/alsa/Front_Center.wav").Start(); err != nil {
-				exec.Command("beep").Start()
+	// Play sound in goroutine to not block UI
+	go func() {
+		switch runtime.GOOS {
+		case "windows":
+			// Play system sound 3 times with short delay for ~2 seconds total
+			for i := 0; i < 3; i++ {
+				exec.Command("powershell", "-c", "[System.Media.SystemSounds]::Exclamation.Play()").Run()
+				time.Sleep(600 * time.Millisecond)
+			}
+		case "darwin":
+			// macOS - play sound 3 times
+			for i := 0; i < 3; i++ {
+				exec.Command("afplay", "/System/Library/Sounds/Ping.aiff").Run()
+				time.Sleep(500 * time.Millisecond)
+			}
+		case "linux":
+			// Linux - try different sound methods, play 3 times
+			for i := 0; i < 3; i++ {
+				if err := exec.Command("paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga").Run(); err != nil {
+					if err := exec.Command("aplay", "/usr/share/sounds/alsa/Front_Center.wav").Run(); err != nil {
+						exec.Command("beep", "-f", "1000", "-l", "200").Run()
+					}
+				}
+				time.Sleep(500 * time.Millisecond)
 			}
 		}
-	}
+	}()
 }
 
 func checkCompletions(ctx context.Context, updateUI func(), app fyne.App) {
