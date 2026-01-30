@@ -124,7 +124,7 @@ go build -o fidruawatch .
 
 ## 📝 Changelog
 
-### v2.2.0 (2025-01-30)
+### v2.2.1 (2025-01-30)
 - ✨ **Sound Selection** - Choose from system sounds for notifications
 - ✨ **Separate Sounds** - Different sounds for upload start vs complete
 - ✨ **Unsigned Batch Reminder** - Periodic reminders for batches awaiting sign-off

@@ -809,7 +809,7 @@ func main() {
 	aboutTitle.TextStyle = fyne.TextStyle{Bold: true}
 	aboutTitle.Alignment = fyne.TextAlignCenter
 
-	versionLabel := canvas.NewText("v2.2.0", colorCyan)
+	versionLabel := canvas.NewText("v2.2.1", colorCyan)
 	versionLabel.TextSize = 14
 	versionLabel.Alignment = fyne.TextAlignCenter
 
