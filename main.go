@@ -350,8 +350,9 @@ func main() {
 	statusText.Alignment = fyne.TextAlignCenter
 
 	// Play button - simple large button
+	// Play button with larger touch area
 	var playBtn *widget.Button
-	playBtn = widget.NewButton("  ▶  ", nil)
+	playBtn = widget.NewButton("    ▶    ", nil)
 	playBtn.Importance = widget.HighImportance
 
 	// Folder selection
@@ -415,10 +416,18 @@ func main() {
 				return
 			}
 			monitorPath = uri.Path()
+			// On Windows, clean up the path
+			if runtime.GOOS == "windows" {
+				monitorPath = filepath.Clean(monitorPath)
+				// Remove leading slash if present (e.g., /C:/path -> C:/path)
+				if len(monitorPath) > 2 && monitorPath[0] == '/' && monitorPath[2] == ':' {
+					monitorPath = monitorPath[1:]
+				}
+			}
 			// 显示路径，如果太长则截断
 			displayPath := monitorPath
-			if len(displayPath) > 40 {
-				displayPath = "..." + displayPath[len(displayPath)-37:]
+			if len(displayPath) > 45 {
+				displayPath = "..." + displayPath[len(displayPath)-42:]
 			}
 			folderLabel.SetText(displayPath)
 		}, w)
@@ -445,7 +454,7 @@ func main() {
 			}
 
 			isMonitoring = true
-			playBtn.SetText("  ⏹  ")
+			playBtn.SetText("    ⏹    ")
 			playBtn.Importance = widget.DangerImportance
 			playBtn.Refresh()
 			statusText.SetText("正在监控: " + filepath.Base(monitorPath))
@@ -459,7 +468,7 @@ func main() {
 			}
 			stopMonitor()
 			isMonitoring = false
-			playBtn.SetText("  ▶  ")
+			playBtn.SetText("    ▶    ")
 			playBtn.Importance = widget.HighImportance
 			playBtn.Refresh()
 			statusText.SetText("点击开始监控")
@@ -902,6 +911,8 @@ func handleFileEvents(ctx context.Context, updateUI func(), app fyne.App) {
 							Title:   "FidruaWatch - 新上传",
 							Content: fmt.Sprintf("检测到新文件: %s", filepath.Base(event.Name)),
 						})
+						// Play sound for new upload
+						playSound()
 					}
 					updateUI()
 				}
@@ -938,8 +949,16 @@ func isTempFile(path string) bool {
 }
 
 func addFileToBatch(filePath string) (isNewBatch bool) {
+	// Normalize path for consistent comparison (especially on Windows)
+	filePath = filepath.Clean(filePath)
 	folder := filepath.Dir(filePath)
 	fileName := filepath.Base(filePath)
+
+	// On Windows, normalize to lowercase for comparison
+	folderNorm := folder
+	if runtime.GOOS == "windows" {
+		folderNorm = strings.ToLower(folder)
+	}
 
 	var fileSize int64
 	if info, err := os.Stat(filePath); err == nil {
@@ -951,7 +970,11 @@ func addFileToBatch(filePath string) (isNewBatch bool) {
 
 	var batch *Batch
 	for _, b := range batches {
-		if b.Folder == folder && b.Status == "uploading" {
+		bFolderNorm := b.Folder
+		if runtime.GOOS == "windows" {
+			bFolderNorm = strings.ToLower(b.Folder)
+		}
+		if bFolderNorm == folderNorm && b.Status == "uploading" {
 			batch = b
 			break
 		}
@@ -991,20 +1014,43 @@ func addFileToBatch(filePath string) (isNewBatch bool) {
 	return
 }
 
-func checkCompletions(ctx context.Context, updateUI func(), app fyne.App) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	timeout := time.Duration(config.CompletionTimeout) * time.Second
-	if timeout < 10*time.Second {
-		timeout = 30 * time.Second
+// playSound plays a system beep/notification sound
+func playSound() {
+	if !config.SoundEnabled {
+		return
 	}
+	switch runtime.GOOS {
+	case "windows":
+		// Use PowerShell to play system sound
+		exec.Command("powershell", "-c", "[System.Media.SystemSounds]::Asterisk.Play()").Start()
+	case "darwin":
+		// macOS system sound
+		exec.Command("afplay", "/System/Library/Sounds/Glass.aiff").Start()
+	case "linux":
+		// Try paplay first, then aplay, then beep
+		if err := exec.Command("paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga").Start(); err != nil {
+			if err := exec.Command("aplay", "/usr/share/sounds/alsa/Front_Center.wav").Start(); err != nil {
+				exec.Command("beep").Start()
+			}
+		}
+	}
+}
+
+func checkCompletions(ctx context.Context, updateUI func(), app fyne.App) {
+	ticker := time.NewTicker(3 * time.Second) // Check more frequently
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Read timeout from config each time (in case it changed)
+			timeout := time.Duration(config.CompletionTimeout) * time.Second
+			if timeout < 10*time.Second {
+				timeout = 30 * time.Second
+			}
+
 			batchesMu.Lock()
 			for _, b := range batches {
 				if b.Status == "uploading" && time.Since(b.LastTime) > timeout {
@@ -1015,6 +1061,8 @@ func checkCompletions(ctx context.Context, updateUI func(), app fyne.App) {
 							Content: fmt.Sprintf("批次完成: %s (%d个文件)", filepath.Base(b.Folder), len(b.Files)),
 						})
 					}
+					// Play completion sound
+					playSound()
 				}
 			}
 			batchesMu.Unlock()
