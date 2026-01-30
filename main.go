@@ -92,6 +92,8 @@ type Config struct {
 	SoundEnabled      bool   `json:"sound_enabled"`
 	SaveHistory       bool   `json:"save_history"`
 	AutoStart         bool   `json:"auto_start"`
+	RemindUnsigned    bool   `json:"remind_unsigned"`
+	RemindInterval    int    `json:"remind_interval"` // seconds, default 60
 }
 
 var tempFilePatterns = []string{".tmp", ".temp", ".part", ".partial", ".crdownload", "~$", ".swp", ".lock"}
@@ -135,6 +137,8 @@ func init() {
 		SoundEnabled:      true,
 		SaveHistory:       true,
 		AutoStart:         false,
+		RemindUnsigned:    true,
+		RemindInterval:    60, // 1 minute
 	}
 	configDir, _ := os.UserConfigDir()
 	configPath = filepath.Join(configDir, "fidruawatch", "config.json")
@@ -336,9 +340,20 @@ func formatSize(bytes int64) string {
 func main() {
 	a := app.NewWithID("com.fidrua.watch")
 	a.Settings().SetTheme(&customTheme{})
+	
+	// Set application icon
+	if resourceLogoPng != nil {
+		a.SetIcon(resourceLogoPng)
+	}
+	
 	w := a.NewWindow("FidruaWatch")
 	w.Resize(fyne.NewSize(420, 700))
 	w.CenterOnScreen()
+	
+	// Set window icon
+	if resourceLogoPng != nil {
+		w.SetIcon(resourceLogoPng)
+	}
 
 	// ========== MONITOR TAB ==========
 	title := canvas.NewText("FidruaWatch", colorPurple)
@@ -471,6 +486,7 @@ func main() {
 
 			go handleFileEvents(monitorCtx, requestUIUpdate, a)
 			go checkCompletions(monitorCtx, requestUIUpdate, a)
+			go remindUnsignedBatches(monitorCtx, a)
 		} else {
 			if monitorCancel != nil {
 				monitorCancel()
@@ -561,6 +577,17 @@ func main() {
 	})
 	completeNotifyCheck.Checked = config.NotifyOnComplete
 
+	remindUnsignedCheck := widget.NewCheck("🔔 未签名批次定时提醒", func(checked bool) {
+		config.RemindUnsigned = checked
+	})
+	remindUnsignedCheck.Checked = config.RemindUnsigned
+
+	remindIntervalEntry := widget.NewEntry()
+	remindIntervalEntry.SetText(fmt.Sprintf("%d", config.RemindInterval))
+	remindIntervalEntry.SetPlaceHolder("60")
+	remindIntervalLabel := widget.NewLabel("提醒间隔(秒):")
+	remindIntervalRow := container.NewHBox(remindIntervalLabel, remindIntervalEntry)
+
 	historyCheck := widget.NewCheck("📝 保存历史记录", func(checked bool) {
 		config.SaveHistory = checked
 	})
@@ -571,6 +598,13 @@ func main() {
 			var timeout int
 			if _, err := fmt.Sscanf(t, "%d", &timeout); err == nil && timeout >= 10 {
 				config.CompletionTimeout = timeout
+			}
+		}
+		// Parse remind interval
+		if t := remindIntervalEntry.Text; t != "" {
+			var interval int
+			if _, err := fmt.Sscanf(t, "%d", &interval); err == nil && interval >= 30 {
+				config.RemindInterval = interval
 			}
 		}
 		// Handle auto-start
@@ -601,6 +635,8 @@ func main() {
 		soundCheck,
 		startNotifyCheck,
 		completeNotifyCheck,
+		remindUnsignedCheck,
+		remindIntervalRow,
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("⚙️ 其他", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		historyCheck,
@@ -1032,26 +1068,30 @@ func playSound() {
 	go func() {
 		switch runtime.GOOS {
 		case "windows":
-			// Play system sound 3 times with short delay for ~2 seconds total
+			// Use VBScript to play system sounds without showing any window
+			// This plays the Windows critical stop sound which is loud and attention-grabbing
 			for i := 0; i < 3; i++ {
-				exec.Command("powershell", "-c", "[System.Media.SystemSounds]::Exclamation.Play()").Run()
-				time.Sleep(600 * time.Millisecond)
+				// Use mshta with vbscript to play sound silently
+				// SystemAsterisk=64, SystemExclamation=48, SystemHand=16 (critical), SystemQuestion=32
+				cmd := exec.Command("mshta", "vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").Run \"\"powershell -WindowStyle Hidden [System.Media.SystemSounds]::Hand.Play()\"\", 0:close\")")
+				cmd.Run()
+				time.Sleep(500 * time.Millisecond)
 			}
 		case "darwin":
-			// macOS - play sound 3 times
+			// macOS - play alert sound multiple times with volume boost
 			for i := 0; i < 3; i++ {
-				exec.Command("afplay", "/System/Library/Sounds/Ping.aiff").Run()
-				time.Sleep(500 * time.Millisecond)
+				exec.Command("afplay", "-v", "2", "/System/Library/Sounds/Sosumi.aiff").Run()
+				time.Sleep(400 * time.Millisecond)
 			}
 		case "linux":
-			// Linux - try different sound methods, play 3 times
+			// Linux - try different sound methods
 			for i := 0; i < 3; i++ {
-				if err := exec.Command("paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga").Run(); err != nil {
+				if err := exec.Command("paplay", "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga").Run(); err != nil {
 					if err := exec.Command("aplay", "/usr/share/sounds/alsa/Front_Center.wav").Run(); err != nil {
-						exec.Command("beep", "-f", "1000", "-l", "200").Run()
+						exec.Command("beep", "-f", "1000", "-l", "200", "-r", "3").Run()
 					}
 				}
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(400 * time.Millisecond)
 			}
 		}
 	}()
@@ -1088,6 +1128,47 @@ func checkCompletions(ctx context.Context, updateUI func(), app fyne.App) {
 			}
 			batchesMu.Unlock()
 			updateUI()
+		}
+	}
+}
+
+// remindUnsignedBatches periodically reminds user about unsigned completed batches
+func remindUnsignedBatches(ctx context.Context, app fyne.App) {
+	// Wait a bit before first check to avoid immediate reminder after completion
+	time.Sleep(30 * time.Second)
+	
+	for {
+		// Get interval from config (default 60 seconds)
+		interval := config.RemindInterval
+		if interval < 30 {
+			interval = 30 // minimum 30 seconds
+		}
+		
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(interval) * time.Second):
+			if !config.RemindUnsigned {
+				continue
+			}
+			
+			// Count unsigned completed batches
+			batchesMu.Lock()
+			unsignedCount := 0
+			for _, b := range batches {
+				if b.Status == "completed" {
+					unsignedCount++
+				}
+			}
+			batchesMu.Unlock()
+			
+			if unsignedCount > 0 {
+				app.SendNotification(&fyne.Notification{
+					Title:   "FidruaWatch - 待签名提醒",
+					Content: fmt.Sprintf("有 %d 个批次等待签名确认", unsignedCount),
+				})
+				playSound()
+			}
 		}
 	}
 }
