@@ -90,7 +90,8 @@ type Config struct {
 	NotifyOnStart     bool   `json:"notify_on_start"`
 	NotifyOnComplete  bool   `json:"notify_on_complete"`
 	SoundEnabled      bool   `json:"sound_enabled"`
-	SoundChoice       string `json:"sound_choice"` // sound file path or system sound name
+	SoundStart        string `json:"sound_start"`    // sound for upload start
+	SoundComplete     string `json:"sound_complete"` // sound for upload complete
 	SaveHistory       bool   `json:"save_history"`
 	AutoStart         bool   `json:"auto_start"`
 	RemindUnsigned    bool   `json:"remind_unsigned"`
@@ -136,7 +137,8 @@ func init() {
 		NotifyOnStart:     true,
 		NotifyOnComplete:  true,
 		SoundEnabled:      true,
-		SoundChoice:       "", // empty means default system sound
+		SoundStart:        "", // empty means default system sound
+		SoundComplete:     "", // empty means default system sound
 		SaveHistory:       true,
 		AutoStart:         false,
 		RemindUnsigned:    true,
@@ -645,33 +647,62 @@ func main() {
 	})
 	soundCheck.Checked = config.SoundEnabled
 
-	// Sound selection dropdown
+	// Sound selection dropdowns
 	availableSounds := getAvailableSounds()
 	soundNames := make([]string, len(availableSounds))
-	var currentSoundIndex int
 	for i, s := range availableSounds {
 		soundNames[i] = s.Name
-		if s.Path == config.SoundChoice {
-			currentSoundIndex = i
+	}
+	
+	// Start sound selection
+	var startSoundIndex int
+	for i, s := range availableSounds {
+		if s.Path == config.SoundStart {
+			startSoundIndex = i
+			break
 		}
 	}
-	soundSelect := widget.NewSelect(soundNames, func(selected string) {
+	startSoundSelect := widget.NewSelect(soundNames, func(selected string) {
 		for _, s := range availableSounds {
 			if s.Name == selected {
-				config.SoundChoice = s.Path
+				config.SoundStart = s.Path
 				break
 			}
 		}
 	})
 	if len(soundNames) > 0 {
-		soundSelect.SetSelectedIndex(currentSoundIndex)
+		startSoundSelect.SetSelectedIndex(startSoundIndex)
 	}
-	
-	// Test sound button
-	testSoundBtn := widget.NewButton("🔈 试听", func() {
-		playSound()
+	testStartBtn := widget.NewButton("🔈", func() {
+		playSound(SoundTypeStart)
 	})
-	soundRow := container.NewBorder(nil, nil, nil, testSoundBtn, soundSelect)
+	startSoundLabel := widget.NewLabel("开始上传:")
+	startSoundRow := container.NewBorder(nil, nil, startSoundLabel, testStartBtn, startSoundSelect)
+	
+	// Complete sound selection
+	var completeSoundIndex int
+	for i, s := range availableSounds {
+		if s.Path == config.SoundComplete {
+			completeSoundIndex = i
+			break
+		}
+	}
+	completeSoundSelect := widget.NewSelect(soundNames, func(selected string) {
+		for _, s := range availableSounds {
+			if s.Name == selected {
+				config.SoundComplete = s.Path
+				break
+			}
+		}
+	})
+	if len(soundNames) > 0 {
+		completeSoundSelect.SetSelectedIndex(completeSoundIndex)
+	}
+	testCompleteBtn := widget.NewButton("🔈", func() {
+		playSound(SoundTypeComplete)
+	})
+	completeSoundLabel := widget.NewLabel("上传完成:")
+	completeSoundRow := container.NewBorder(nil, nil, completeSoundLabel, testCompleteBtn, completeSoundSelect)
 
 	startNotifyCheck := widget.NewCheck("📤 上传开始提醒", func(checked bool) {
 		config.NotifyOnStart = checked
@@ -739,7 +770,8 @@ func main() {
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("🔔 通知设置", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		soundCheck,
-		soundRow,
+		startSoundRow,
+		completeSoundRow,
 		startNotifyCheck,
 		completeNotifyCheck,
 		remindUnsignedCheck,
@@ -1064,7 +1096,7 @@ func handleFileEvents(ctx context.Context, updateUI func(), app fyne.App) {
 							Content: fmt.Sprintf("检测到新文件: %s", filepath.Base(event.Name)),
 						})
 						// Play sound for new upload
-						playSound()
+						playSound(SoundTypeStart)
 					}
 					updateUI()
 				}
@@ -1167,13 +1199,27 @@ func addFileToBatch(filePath string) (isNewBatch bool) {
 }
 
 // playSound plays a notification sound repeatedly for better attention
-func playSound() {
+// SoundType indicates which sound to play
+type SoundType int
+
+const (
+	SoundTypeStart    SoundType = iota // upload started
+	SoundTypeComplete                   // upload completed
+)
+
+func playSound(soundType SoundType) {
 	if !config.SoundEnabled {
 		return
 	}
 	// Play sound in goroutine to not block UI
 	go func() {
-		soundPath := config.SoundChoice
+		var soundPath string
+		switch soundType {
+		case SoundTypeStart:
+			soundPath = config.SoundStart
+		case SoundTypeComplete:
+			soundPath = config.SoundComplete
+		}
 		
 		switch runtime.GOOS {
 		case "windows":
@@ -1258,7 +1304,7 @@ func checkCompletions(ctx context.Context, updateUI func(), app fyne.App) {
 						})
 					}
 					// Play completion sound
-					playSound()
+					playSound(SoundTypeComplete)
 				}
 			}
 			batchesMu.Unlock()
@@ -1302,7 +1348,7 @@ func remindUnsignedBatches(ctx context.Context, app fyne.App) {
 					Title:   "FidruaWatch - 待签名提醒",
 					Content: fmt.Sprintf("有 %d 个批次等待签名确认", unsignedCount),
 				})
-				playSound()
+				playSound(SoundTypeComplete) // Use complete sound for reminder
 			}
 		}
 	}
