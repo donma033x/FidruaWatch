@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-00d9ff" alt="Platform">
-  <img src="https://img.shields.io/badge/version-2.1.3-00ff88" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.2.0-00ff88" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
 </p>
 
@@ -76,6 +76,8 @@
 - **监控子文件夹** - 是否递归监控子目录
 - **新上传时通知** - 检测到新批次时发送系统通知
 - **上传完成时通知** - 批次完成时发送系统通知
+- **声音选择** - 为开始/完成事件选择不同的提示音
+- **未签收提醒** - 定时提醒未签收的批次
 - **完成超时(秒)** - 无新文件写入多久后判定上传完成（默认30秒，最小10秒）
 - **开机自启动** - 系统启动时自动运行程序
 
@@ -121,6 +123,13 @@ go build -o fidruawatch .
 ---
 
 ## 📝 更新日志
+
+### v2.2.0 (2025-01-30)
+- ✨ **声音选择** - 可从系统声音中选择提示音
+- ✨ **独立声音** - 开始上传和上传完成可设置不同声音
+- ✨ **未签收提醒** - 定时提醒等待签收的批次
+- ✨ **程序图标** - 任务栏/Dock显示应用图标
+- 🐛 **修复** - Windows上播放声音不再弹出黑窗
 
 ### v2.1.1 (2025-01-14)
 - ✨ **Tab栏平铺布局** - 三个标签平均分布

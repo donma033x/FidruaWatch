@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-00d9ff" alt="Platform">
-  <img src="https://img.shields.io/badge/version-2.1.3-00ff88" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.2.0-00ff88" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
 </p>
 
@@ -76,6 +76,8 @@ Go to [Releases](https://github.com/donma033x/FidruaWatch/releases) to download:
 - **Monitor Subdirectories** - Recursively monitor subdirectories
 - **Notify on Start** - Send notification when new batch detected
 - **Notify on Complete** - Send notification when batch completes
+- **Sound Selection** - Choose different sounds for start/complete events
+- **Unsigned Reminder** - Periodic reminder for batches awaiting sign-off
 - **Completion Timeout** - Seconds of inactivity before marking complete (default 30s, min 10s)
 - **Auto Start** - Launch application on system startup
 
@@ -121,6 +123,13 @@ go build -o fidruawatch .
 ---
 
 ## 📝 Changelog
+
+### v2.2.0 (2025-01-30)
+- ✨ **Sound Selection** - Choose from system sounds for notifications
+- ✨ **Separate Sounds** - Different sounds for upload start vs complete
+- ✨ **Unsigned Batch Reminder** - Periodic reminders for batches awaiting sign-off
+- ✨ **App Icon** - Application icon now displays in taskbar/dock
+- 🐛 **Fix** - No more console window popup on Windows when playing sounds
 
 ### v2.1.1 (2025-01-14)
 - ✨ **Tab Bar Layout** - Three tabs evenly distributed
