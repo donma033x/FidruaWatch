@@ -90,6 +90,7 @@ type Config struct {
 	NotifyOnStart     bool   `json:"notify_on_start"`
 	NotifyOnComplete  bool   `json:"notify_on_complete"`
 	SoundEnabled      bool   `json:"sound_enabled"`
+	SoundChoice       string `json:"sound_choice"` // sound file path or system sound name
 	SaveHistory       bool   `json:"save_history"`
 	AutoStart         bool   `json:"auto_start"`
 	RemindUnsigned    bool   `json:"remind_unsigned"`
@@ -135,6 +136,7 @@ func init() {
 		NotifyOnStart:     true,
 		NotifyOnComplete:  true,
 		SoundEnabled:      true,
+		SoundChoice:       "", // empty means default system sound
 		SaveHistory:       true,
 		AutoStart:         false,
 		RemindUnsigned:    true,
@@ -335,6 +337,82 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// SoundOption represents a sound choice
+type SoundOption struct {
+	Name string // Display name
+	Path string // File path or special identifier
+}
+
+// getAvailableSounds scans system directories for available sound files
+func getAvailableSounds() []SoundOption {
+	var sounds []SoundOption
+	
+	// Add default option
+	sounds = append(sounds, SoundOption{Name: "默认系统声音", Path: ""})
+	
+	switch runtime.GOOS {
+	case "windows":
+		// Windows Media folder
+		mediaDirs := []string{
+			"C:\\Windows\\Media",
+		}
+		extensions := []string{".wav"}
+		for _, dir := range mediaDirs {
+			scanSoundDir(dir, extensions, &sounds)
+		}
+	case "darwin":
+		// macOS system sounds
+		macDirs := []string{
+			"/System/Library/Sounds",
+			"/Library/Sounds",
+		}
+		extensions := []string{".aiff", ".aif", ".mp3", ".wav"}
+		for _, dir := range macDirs {
+			scanSoundDir(dir, extensions, &sounds)
+		}
+	case "linux":
+		// Linux common sound directories
+		linuxDirs := []string{
+			"/usr/share/sounds/freedesktop/stereo",
+			"/usr/share/sounds",
+		}
+		extensions := []string{".oga", ".ogg", ".wav", ".mp3"}
+		for _, dir := range linuxDirs {
+			scanSoundDir(dir, extensions, &sounds)
+		}
+	}
+	
+	return sounds
+}
+
+// scanSoundDir scans a directory for sound files
+func scanSoundDir(dir string, extensions []string, sounds *[]SoundOption) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		lowerName := strings.ToLower(name)
+		for _, ext := range extensions {
+			if strings.HasSuffix(lowerName, ext) {
+				// Remove extension for display name
+				displayName := strings.TrimSuffix(name, filepath.Ext(name))
+				fullPath := filepath.Join(dir, name)
+				*sounds = append(*sounds, SoundOption{
+					Name: displayName,
+					Path: fullPath,
+				})
+				break
+			}
+		}
+	}
 }
 
 func main() {
@@ -567,6 +645,34 @@ func main() {
 	})
 	soundCheck.Checked = config.SoundEnabled
 
+	// Sound selection dropdown
+	availableSounds := getAvailableSounds()
+	soundNames := make([]string, len(availableSounds))
+	var currentSoundIndex int
+	for i, s := range availableSounds {
+		soundNames[i] = s.Name
+		if s.Path == config.SoundChoice {
+			currentSoundIndex = i
+		}
+	}
+	soundSelect := widget.NewSelect(soundNames, func(selected string) {
+		for _, s := range availableSounds {
+			if s.Name == selected {
+				config.SoundChoice = s.Path
+				break
+			}
+		}
+	})
+	if len(soundNames) > 0 {
+		soundSelect.SetSelectedIndex(currentSoundIndex)
+	}
+	
+	// Test sound button
+	testSoundBtn := widget.NewButton("🔈 试听", func() {
+		playSound()
+	})
+	soundRow := container.NewBorder(nil, nil, nil, testSoundBtn, soundSelect)
+
 	startNotifyCheck := widget.NewCheck("📤 上传开始提醒", func(checked bool) {
 		config.NotifyOnStart = checked
 	})
@@ -633,6 +739,7 @@ func main() {
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("🔔 通知设置", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		soundCheck,
+		soundRow,
 		startNotifyCheck,
 		completeNotifyCheck,
 		remindUnsignedCheck,
@@ -1066,32 +1173,60 @@ func playSound() {
 	}
 	// Play sound in goroutine to not block UI
 	go func() {
+		soundPath := config.SoundChoice
+		
 		switch runtime.GOOS {
 		case "windows":
-			// Use VBScript to play system sounds without showing any window
-			// This plays the Windows critical stop sound which is loud and attention-grabbing
-			for i := 0; i < 3; i++ {
-				// Use mshta with vbscript to play sound silently
-				// SystemAsterisk=64, SystemExclamation=48, SystemHand=16 (critical), SystemQuestion=32
-				cmd := exec.Command("mshta", "vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").Run \"\"powershell -WindowStyle Hidden [System.Media.SystemSounds]::Hand.Play()\"\", 0:close\")")
-				cmd.Run()
-				time.Sleep(500 * time.Millisecond)
+			if soundPath != "" {
+				// Play custom sound file using PowerShell without window
+				for i := 0; i < 3; i++ {
+					// Use mshta to run PowerShell hidden
+					ps := fmt.Sprintf(`powershell -WindowStyle Hidden -Command "(New-Object Media.SoundPlayer '%s').PlaySync()"`, soundPath)
+					cmd := exec.Command("mshta", fmt.Sprintf(`vbscript:Execute("CreateObject(""Wscript.Shell"").Run ""%s"", 0:close")`, ps))
+					cmd.Run()
+					time.Sleep(300 * time.Millisecond)
+				}
+			} else {
+				// Default: play system sound
+				for i := 0; i < 3; i++ {
+					cmd := exec.Command("mshta", `vbscript:Execute("CreateObject(""Wscript.Shell"").Run ""powershell -WindowStyle Hidden [System.Media.SystemSounds]::Hand.Play()"", 0:close")`)
+					cmd.Run()
+					time.Sleep(500 * time.Millisecond)
+				}
 			}
 		case "darwin":
-			// macOS - play alert sound multiple times with volume boost
-			for i := 0; i < 3; i++ {
-				exec.Command("afplay", "-v", "2", "/System/Library/Sounds/Sosumi.aiff").Run()
-				time.Sleep(400 * time.Millisecond)
+			if soundPath != "" {
+				for i := 0; i < 3; i++ {
+					exec.Command("afplay", "-v", "2", soundPath).Run()
+					time.Sleep(400 * time.Millisecond)
+				}
+			} else {
+				// Default macOS sound
+				for i := 0; i < 3; i++ {
+					exec.Command("afplay", "-v", "2", "/System/Library/Sounds/Sosumi.aiff").Run()
+					time.Sleep(400 * time.Millisecond)
+				}
 			}
 		case "linux":
-			// Linux - try different sound methods
-			for i := 0; i < 3; i++ {
-				if err := exec.Command("paplay", "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga").Run(); err != nil {
-					if err := exec.Command("aplay", "/usr/share/sounds/alsa/Front_Center.wav").Run(); err != nil {
-						exec.Command("beep", "-f", "1000", "-l", "200", "-r", "3").Run()
+			if soundPath != "" {
+				for i := 0; i < 3; i++ {
+					if strings.HasSuffix(soundPath, ".oga") || strings.HasSuffix(soundPath, ".ogg") {
+						exec.Command("paplay", soundPath).Run()
+					} else {
+						exec.Command("aplay", soundPath).Run()
 					}
+					time.Sleep(400 * time.Millisecond)
 				}
-				time.Sleep(400 * time.Millisecond)
+			} else {
+				// Default Linux sound
+				for i := 0; i < 3; i++ {
+					if err := exec.Command("paplay", "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga").Run(); err != nil {
+						if err := exec.Command("aplay", "/usr/share/sounds/alsa/Front_Center.wav").Run(); err != nil {
+							exec.Command("beep", "-f", "1000", "-l", "200", "-r", "3").Run()
+						}
+					}
+					time.Sleep(400 * time.Millisecond)
+				}
 			}
 		}
 	}()
